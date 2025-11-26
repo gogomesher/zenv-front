@@ -1,0 +1,16 @@
+{
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build"
+  },
+  "devDependencies": {
+    "vite": "^7.2.4"
+  },
+  "dependencies": {
+    "@reown/appkit": "^1.8.14",
+    "@reown/appkit-adapter-ethers5": "^1.8.14",
+    "@reown/appkit-adapter-solana": "^1.8.14",
+    "@reown/appkit-adapter-ton": "^1.8.14",
+    "@tronweb3/walletconnect-tron": "^4.0.0"
+  }
+}

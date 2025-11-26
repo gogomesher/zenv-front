@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>zEnvelope - 加密口令红包</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+    <link rel="stylesheet" href="css/styles_v2.css">
+</head>
+
+<body>
+    <div class="container">
+        <header>
+            <a href="index.html" class="logo">
+                <i class="far fa-envelope-open"></i>
+                <span>zEnvelope</span>
+            </a>
+            <div class="header-right">
+                <nav id="nav-menu">
+                    <ul>
+                        <li><a href="index.html" class="active">发红包</a></li>
+                        <li><a href="receive.html">收红包</a></li>
+                    </ul>
+                </nav>
+                <span id="network-display" class="network-badge" style="display: none;"></span>
+                <a href="#" class="verify-btn" id="connect-wallet-btn">连接钱包</a>
+            </div>
+        </header>
+
+        <!-- Wallet Selection Modal -->
+        <div id="wallet-select-modal" class="modal-overlay">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h3>Connect Wallet</h3>
+                    <button id="close-select-modal" class="modal-close-icon">
+                        <i class="fas fa-times"></i>
+                    </button>
+                </div>
+                <div class="wallet-list">
+                    <button id="select-appkit" class="wallet-option-btn">
+                        <div class="wallet-info">
+                            <div class="wallet-icon icon-appkit">
+                                <img src="img/walletconnect.png" alt="TronLink" style="width: 100%; height: 100%; object-fit: contain; border-radius: 12px;">
+                            </div>
+                            <span class="wallet-name">Wallet Connect</span>
+                        </div>
+                        <i class="fas fa-chevron-right wallet-arrow"></i>
+                    </button>
+                    <button id="select-tron" class="wallet-option-btn">
+                        <div class="wallet-info">
+                            <div class="wallet-icon icon-tron">
+                                <img src="img/tronlink.png" alt="TronLink" style="width: 100%; height: 100%; object-fit: contain; border-radius: 12px;">
+                            </div>
+                            <span class="wallet-name">Tron (TronLink)</span>
+                        </div>
+                        <i class="fas fa-chevron-right wallet-arrow"></i>
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <main>
+            <div class="card">
+                <div class="card-header">
+                    <h1>创建口令红包</h1>
+                    <p>将代币放入信封，设置口令，分享给好友。</p>
+                </div>
+
+                <div id="result-message" class="result-card" style="display: none;">
+                    <h3><i class="fas fa-check-circle"></i> 创建成功!</h3>
+                    <p>您的红包 ID 是:</p>
+                    <div class="highlight-text" id="envelope-id"></div>
+                    <p>请将此 ID 和口令分享给好友。</p>
+                </div>
+
+                <form id="envelope-form">
+                    <div class="form-group">
+                        <label for="token-address">选择代币</label>
+                        <div class="input-wrapper">
+                            <select id="token-address" required>
+                                <option value="" disabled selected>请先连接钱包</option>
+                            </select>
+                        </div>
+                        <span id="scan-status"></span>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="amount">总金额</label>
+                        <div class="input-wrapper">
+                            <input type="number" id="amount" placeholder="0.00" step="any" required>
+                        </div>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="recipient-count">红包个数</label>
+                        <div class="input-wrapper">
+                            <input type="number" id="recipient-count" placeholder="例如: 10" min="1" step="1" required>
+                        </div>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="distribution-type">红包类型</label>
+                        <div class="input-wrapper">
+                            <select id="distribution-type">
+                                <option value="0">人均红包</option>
+                                <option value="1">拼手气红包</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="password">设置口令</label>
+                        <div class="input-wrapper">
+                            <input type="text" id="password" placeholder="设置领取口令" required>
+                        </div>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="validity">有效期 (小时)</label>
+                        <div class="input-wrapper">
+                            <input type="number" id="validity" placeholder="默认 24 小时" min="1">
+                        </div>
+                    </div>
+
+                    <button type="submit" class="submit-btn">
+                        创建红包
+                    </button>
+                </form>
+        </main>
+
+        <footer>
+            <p>&copy; 2025 zEnvelope. All rights reserved.</p>
+        </footer>
+    </div>
+
+    <script src="https://cdn.zionfhe.ai/zenv/ethers.umd.min.js"></script>
+    <script src="js/wasm_exec.js"></script>
+    <script type="module" src="js/script.js?v=1"></script>
+</body>
+
+</html>

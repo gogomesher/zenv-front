@@ -1,0 +1,450 @@
+@import url('https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&display=swap');
+
+:root {
+    --primary-color: #2ecc71;
+    --primary-dark: #27ae60;
+    --secondary-color: #ecf0f1;
+    --text-color: #2c3e50;
+    --light-grey: #f7f9fa;
+    --dark-grey: #34495e;
+    --shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+    --transition: all 0.3s ease;
+}
+
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+body {
+    font-family: 'Poppins', sans-serif;
+    color: var(--text-color);
+    background-color: #f9f9f9;
+    line-height: 1.6;
+}
+
+.container {
+    max-width: 1200px;
+    margin: 0 auto;
+    padding: 0 20px;
+}
+
+/* Header Styles */
+header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 20px 0;
+}
+
+.logo {
+    display: flex;
+    align-items: center;
+    font-size: 1.5rem;
+    font-weight: 600;
+    color: var(--primary-color);
+}
+
+.logo i {
+    margin-right: 8px;
+    font-size: 1.8rem;
+}
+
+nav ul {
+    display: flex;
+    list-style: none;
+}
+
+nav ul li {
+    margin-left: 30px;
+}
+
+nav ul li a {
+    text-decoration: none;
+    color: var(--text-color);
+    font-weight: 500;
+    transition: var(--transition);
+    padding: 8px 0;
+    position: relative;
+}
+
+nav ul li a::after {
+    content: '';
+    position: absolute;
+    width: 0;
+    height: 2px;
+    background-color: var(--primary-color);
+    left: 0;
+    bottom: 0;
+    transition: var(--transition);
+}
+
+nav ul li a:hover,
+nav ul li a.active {
+    color: var(--primary-color);
+}
+
+nav ul li a:hover::after,
+nav ul li a.active::after {
+    width: 100%;
+}
+
+.header-right {
+    display: flex;
+    align-items: center;
+    gap: 20px;
+}
+
+.verify-btn {
+    background-color: #222;
+    color: white !important;
+    padding: 8px 16px !important;
+    border-radius: 5px;
+}
+
+.verify-btn:hover {
+    background-color: #000;
+}
+
+.menu-toggle {
+    display: none; /* Hidden by default */
+    background: none;
+    border: none;
+    font-size: 1.5rem;
+    cursor: pointer;
+    color: var(--text-color);
+}
+
+/* Hero Section */
+.hero {
+    /*background-color: var(--light-grey);*/
+    background-image: url("https://cdn.zionfhe.ai/zenv/2.png");
+    background-size: cover;            /* 自动缩放以覆盖整个元素 */
+    background-position: center center;
+    padding: 40px;
+    border-radius: 12px;
+    margin: 20px 0;
+    text-align: center;
+    box-shadow: var(--shadow);
+    animation: fadeIn 0.8s ease-out;
+}
+
+.hero h1 {
+    font-size: 1.8rem;
+    margin-bottom: 15px;
+    color: #ffffff;
+}
+
+.hero p {
+    color: #ffffff;
+    max-width: 800px;
+    margin: 0 auto;
+}
+
+/* Token Type Cards */
+.token-types {
+    display: flex;
+    justify-content: space-between;
+    margin: 30px 0;
+    gap: 20px;
+}
+
+.token-card {
+    flex: 1;
+    background-color: white;
+    border-radius: 10px;
+    padding: 25px;
+    text-align: center;
+    cursor: pointer;
+    transition: var(--transition);
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+    position: relative;
+    overflow: hidden;
+}
+
+.token-card:hover {
+    transform: translateY(-5px);
+    box-shadow: 0 10px 20px rgba(0, 0, 0, 0.1);
+}
+
+.token-card:nth-child(1) {
+    background-color: rgba(46, 204, 113, 0.1);
+}
+
+.token-card:nth-child(2) {
+    background-color: rgba(52, 152, 219, 0.05);
+}
+
+.token-card:nth-child(3) {
+    background-color: rgba(155, 89, 182, 0.05);
+}
+
+.token-card.active {
+    border: 2px solid var(--primary-color);
+}
+
+.token-card .card-icon {
+    width: 60px;
+    height: 60px;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    margin: 0 auto 15px;
+    border-radius: 50%;
+    font-size: 1.5rem;
+    background-color: white;
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+}
+
+.token-card:nth-child(1) .card-icon {
+    color: var(--primary-color);
+}
+
+.token-card:nth-child(2) .card-icon {
+    color: #3498db;
+}
+
+.token-card:nth-child(3) .card-icon {
+    color: #9b59b6;
+}
+
+.token-card h3 {
+    font-size: 1rem;
+    font-weight: 500;
+}
+
+/* Form Styles */
+form {
+    background-color: white;
+    padding: 30px;
+    border-radius: 12px;
+    box-shadow: var(--shadow);
+    margin-bottom: 40px;
+}
+
+.form-group {
+    margin-bottom: 25px;
+}
+
+label {
+    display: block;
+    margin-bottom: 8px;
+    font-weight: 500;
+}
+
+.optional {
+    font-weight: 300;
+    color: #95a5a6;
+    font-size: 0.85rem;
+}
+
+.select-wrapper,
+.input-wrapper {
+    position: relative;
+}
+
+select,
+input {
+    width: 100%;
+    padding: 15px;
+    border: 1px solid #ddd;
+    border-radius: 8px;
+    font-size: 1rem;
+    transition: var(--transition);
+    background-color: white;
+    color: var(--text-color);
+    appearance: none;
+}
+
+input:focus,
+select:focus {
+    outline: none;
+    border-color: var(--primary-color);
+    box-shadow: 0 0 0 3px rgba(46, 204, 113, 0.2);
+}
+
+.select-wrapper i {
+    position: absolute;
+    right: 15px;
+    top: 50%;
+    transform: translateY(-50%);
+    color: #95a5a6;
+    pointer-events: none;
+}
+
+.submit-btn {
+    width: 100%;
+    padding: 16px;
+    background-color: #222;
+    color: white;
+    border: none;
+    border-radius: 8px;
+    font-size: 1rem;
+    font-weight: 500;
+    cursor: pointer;
+    transition: var(--transition);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    gap: 10px;
+}
+
+.submit-btn:hover {
+    background-color: #000;
+    transform: translateY(-2px);
+    box-shadow: 0 6px 12px rgba(0, 0, 0, 0.1);
+}
+
+/* Footer */
+footer {
+    text-align: center;
+    padding: 30px 0;
+    color: #95a5a6;
+    font-size: 0.9rem;
+}
+
+/* Animations */
+@keyframes fadeIn {
+    from {
+        opacity: 0;
+        transform: translateY(20px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+@keyframes pulse {
+    0% {
+        transform: scale(1);
+    }
+    50% {
+        transform: scale(1.05);
+    }
+    100% {
+        transform: scale(1);
+    }
+}
+
+.token-card.active .card-icon {
+    animation: pulse 1.5s infinite;
+}
+
+/* Responsive Design */
+@media (max-width: 992px) {
+    .container {
+        padding: 0 20px;
+    }
+}
+
+@media (max-width: 768px) {
+    .token-types {
+        flex-direction: row;
+        overflow-x: auto;
+    }
+
+    header {
+        flex-direction: row;
+        justify-content: space-between;
+        align-items: center;
+        padding: 20px;
+    }
+
+    .menu-toggle {
+        display: block; /* Show on mobile */
+    }
+
+    nav {
+        display: none; /* Hide nav by default on mobile */
+        position: absolute;
+        top: 80px; /* Adjust as needed */
+        left: 0;
+        width: 100%;
+        background-color: white;
+        box-shadow: var(--shadow);
+        z-index: 1000;
+    }
+
+    nav.active {
+        display: block; /* Show when active */
+    }
+
+    nav ul {
+        flex-direction: column;
+        width: 100%;
+    }
+
+    nav ul li {
+        margin-left: 0;
+        width: 100%;
+        text-align: center;
+    }
+
+    nav ul li a {
+        display: block;
+        padding: 15px 0;
+        border-bottom: 1px solid #eee;
+    }
+
+    nav ul li a::after {
+        display: none; /* Hide underline on mobile */
+    }
+
+    .verify-btn {
+        padding: 8px 12px !important;
+        white-space: nowrap;
+    }
+
+    .hero {
+        padding: 40px 20px;
+    }
+
+    .hero h1 {
+        font-size: 1.6rem;
+    }
+
+    .hero p {
+        font-size: 0.95rem;
+    }
+
+    form {
+        padding: 25px;
+    }
+}
+
+@media (max-width: 480px) {
+    body {
+        font-size: 16px;
+    }
+
+    .logo {
+        font-size: 1.3rem;
+    }
+
+    .hero h1 {
+        font-size: 1.4rem;
+    }
+
+    .hero p {
+        font-size: 0.9rem;
+    }
+
+    .token-card {
+        padding: 20px;
+    }
+
+    .form-group {
+        margin-bottom: 20px;
+    }
+
+    input, select, .submit-btn {
+        padding: 15px;
+        font-size: 1rem;
+    }
+
+    .submit-btn {
+        font-size: 1.1rem;
+    }
+}
