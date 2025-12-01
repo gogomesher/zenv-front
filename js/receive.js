@@ -1,6 +1,7 @@
 import { modal } from './wallet_connector.js';
 import { connectTronWallet } from './tron_connector.js';
 import { CHAIN_CONFIG, SUPPORTED_EVM_CHAINS } from './chain_config.js';
+import { t } from './i18n.js';
 
 let currentAccount = null;
 let ethersProvider;
@@ -87,6 +88,7 @@ async function handleConnection(provider, address, chainId) {
     const verifyBtn = document.querySelector('.verify-btn');
     if (verifyBtn) {
         verifyBtn.textContent = currentAccount.substring(0, 6) + '...' + currentAccount.substring(currentAccount.length - 4);
+        verifyBtn.removeAttribute('data-i18n'); // Prevent i18n from overwriting address
     }
 
     const chainConfig = CHAIN_CONFIG[currentChainId];
@@ -94,10 +96,10 @@ async function handleConnection(provider, address, chainId) {
 
     if (!chainConfig) {
         console.warn(`Unsupported network: ${currentChainId}.`);
-        showNotification('不支持的网络，请切换到支持的链', 'error');
+        showNotification(t('unsupported_network'), 'error');
         
         if (networkDisplay) {
-            networkDisplay.textContent = '未知网络';
+            networkDisplay.textContent = t('unknown_network');
             networkDisplay.style.display = 'inline-block';
         }
         return;
@@ -113,7 +115,7 @@ async function handleConnection(provider, address, chainId) {
     console.log(`Connected to ${chainConfig.name} (${currentChainId}). Contract: ${zEnvelopeAddress}`);
 
     if (!zEnvelopeAddress) {
-        showNotification(`该网络 (${chainConfig.name}) 暂未部署合约`, 'warning');
+        showNotification(t('contract_not_deployed', { name: chainConfig.name }), 'warning');
     }
 
     if (chainConfig.type === 'evm') {
@@ -135,7 +137,7 @@ async function handleConnection(provider, address, chainId) {
         window.tonProvider = provider;
     }
 
-    showNotification(`已连接到 ${chainConfig.name}`, 'success');
+    showNotification(t('connected_to', { name: chainConfig.name }), 'success');
 }
 
 function handleDisconnect() {
@@ -145,7 +147,8 @@ function handleDisconnect() {
     zEnvelopeAddress = null;
     const verifyBtn = document.querySelector('.verify-btn');
     if (verifyBtn) {
-        verifyBtn.textContent = '连接钱包';
+        verifyBtn.setAttribute('data-i18n', 'connect_wallet'); // Restore i18n
+        verifyBtn.textContent = t('connect_wallet');
     }
 
     const networkDisplay = document.getElementById('network-display');
@@ -223,17 +226,17 @@ document.addEventListener('DOMContentLoaded', async function () {
 
 		// Validate form
 		if (!envelopeId) {
-			showNotification('请输入红包 ID', 'error');
+			showNotification(t('enter_envelope_id'), 'error');
 			return;
 		}
 
 		if (!currentAccount) {
-			showNotification('请先连接钱包', 'error');
+			showNotification(t('wallet_not_connected'), 'error');
 			return;
 		}
 
 		if (!zEnvelopeAddress) {
-			showNotification('当前网络暂不支持或未配置合约地址', 'error');
+			showNotification(t('network_not_supported'), 'error');
 			return;
 		}
 
@@ -244,17 +247,17 @@ document.addEventListener('DOMContentLoaded', async function () {
 		// Show loading state on button
 		const submitBtn = document.querySelector('.submit-btn');
 		const originalText = submitBtn.innerHTML;
-		submitBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> 正在领取...';
+		submitBtn.innerHTML = `<i class="fas fa-spinner fa-spin"></i> ${t('claiming')}`;
 		submitBtn.disabled = true;
 
 		try {
 			const zEnvelopeContract = new ethers.Contract(zEnvelopeAddress, zEnvelopeABI, ethersSigner);
 
 			// 1. 检查红包ID是否有效
-			showNotification('正在验证红包ID...', 'info');
+			showNotification(t('verifying_id'), 'info');
 			const nextId = await zEnvelopeContract.nextEnvelopeId();
 			if (parseInt(envelopeId) <= 0 || parseInt(envelopeId) >= nextId) {
-				showNotification('无效的红包 ID', 'error');
+				showNotification(t('invalid_id'), 'error');
 				return;
 			}
 
@@ -267,10 +270,10 @@ document.addEventListener('DOMContentLoaded', async function () {
 				envelopeId,
 				hashedPassword // 用户输入的加密后口令
 			);
-			showNotification('已提交领取请求，等待交易确认...', 'info');
+			showNotification(t('claim_request_submitted'), 'info');
 			await tx.wait(); // 等待请求被打包
 
-			showNotification('交易已确认，等待后端验证...', 'info');
+			showNotification(t('tx_confirmed_waiting'), 'info');
 
 			// 2. 等待最终的领取成功事件或超时 (改为轮询机制)
 			let receivedAmount;
@@ -322,16 +325,16 @@ document.addEventListener('DOMContentLoaded', async function () {
 							// Show error UI
 							const errorInfoDiv = document.getElementById('error-info');
 							const errorDetailsDiv = document.getElementById('error-details');
-							errorDetailsDiv.innerHTML = "口令验证失败，请检查口令是否正确。";
+							errorDetailsDiv.innerHTML = t('password_verify_failed');
 							errorInfoDiv.style.display = 'block';
 
-							reject(new Error('口令验证失败'));
+							reject(new Error(t('password_verify_failed')));
 							return;
 						}
 
 						if (attempts >= maxAttempts) {
 							clearInterval(pollInterval);
-							reject(new Error('领取超时，未检测到领取事件。请检查钱包余额。'));
+							reject(new Error(t('claim_timeout')));
 						}
 					} catch (err) {
 						console.error("Polling error:", err);
@@ -346,19 +349,19 @@ document.addEventListener('DOMContentLoaded', async function () {
 			const assetInfoDiv = document.getElementById('asset-info');
 			const assetDetailsP = document.getElementById('asset-details');
 
-			let detailsHtml = `代币: ${tokenName}<br>
-                               数量: ${ethers.utils.formatUnits(receivedAmount, 18)}`;
+			let detailsHtml = `${t('token')}: ${tokenName}<br>
+                               ${t('amount')}: ${ethers.utils.formatUnits(receivedAmount, 18)}`;
 
 			assetDetailsP.innerHTML = detailsHtml;
 			assetInfoDiv.style.display = 'block';
 
 			// 显示成功消息
-			showNotification('红包领取成功！', 'success');
+			showNotification(t('claim_success'), 'success');
 
 		} catch (error) {
 			console.error('领取红包失败:', error);
 
-			showNotification(`领取红包失败: ${error.message}`, 'error');
+			showNotification(`${t('claim_failed')} ${error.message}`, 'error');
 		} finally {
 			// 重置按钮状态
 			submitBtn.innerHTML = originalText;
@@ -420,7 +423,7 @@ document.addEventListener('DOMContentLoaded', () => {
 				if (module.modal) {
 					module.modal.open();
 				} else {
-					showNotification('Web3Modal 初始化失败', 'error');
+					showNotification(t('web3modal_init_failed'), 'error');
 				}
 			});
 		});
@@ -475,7 +478,7 @@ async function connectToTron() {
 		}
 	} catch (error) {
 		console.error("Tron connection error:", error);
-		showNotification("连接波场失败: " + error.message, 'error');
+		showNotification(t('connect_tron_failed') + error.message, 'error');
 	}
 }
 

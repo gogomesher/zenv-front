@@ -50,10 +50,23 @@ body {
 /* Header */
 header {
     display: flex;
-    justify-content: space-between;
-    align-items: center;
+    flex-direction: column;
+    gap: 1rem;
     padding: 20px 0;
     margin-bottom: 20px;
+}
+
+.header-top {
+    width: 100%;
+    display: flex;
+    justify-content: center;
+}
+
+.header-bottom {
+    width: 100%;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
 }
 
 .logo {
@@ -71,10 +84,10 @@ header {
     font-size: 1.5rem;
 }
 
-.header-right {
+.header-controls {
     display: flex;
     align-items: center;
-    gap: 15px;
+    gap: 10px;
 }
 
 .verify-btn {
@@ -102,6 +115,24 @@ header {
     font-weight: 500;
     margin-right: 10px;
     border: 1px solid var(--border-color);
+}
+
+.lang-btn {
+    background: none;
+    border: 1px solid var(--border-color);
+    color: var(--text-main);
+    padding: 0.5rem 1rem;
+    border-radius: 20px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    font-size: 0.9rem;
+    transition: var(--transition);
+}
+
+.lang-btn:hover {
+    background-color: var(--secondary-color);
 }
 
 /* Navigation (Simplified for mobile-first feel) */
@@ -304,12 +335,12 @@ footer {
         border-radius: 20px;
     }
 
-    header {
+    .header-bottom {
         flex-direction: column;
         gap: 15px;
     }
 
-    .header-right {
+    .header-controls {
         width: 100%;
         justify-content: center;
     }

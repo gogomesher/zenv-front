@@ -2,6 +2,7 @@
 import { modal } from './wallet_connector.js';
 import { connectTronWallet } from './tron_connector.js';
 import { CHAIN_CONFIG, SUPPORTED_EVM_CHAINS } from './chain_config.js';
+import { t } from './i18n.js';
 
 console.log('Script loaded');
 console.log('Modal imported:', modal);
@@ -107,6 +108,7 @@ async function handleConnection(provider, address, chainId) {
     if (verifyBtn) {
         const shortAddress = currentAccount.substring(0, 6) + '...' + currentAccount.substring(currentAccount.length - 4);
         verifyBtn.textContent = shortAddress;
+        verifyBtn.removeAttribute('data-i18n'); // Prevent i18n from overwriting address
         console.log('Updated verify button text to:', shortAddress);
     }
 
@@ -117,10 +119,10 @@ async function handleConnection(provider, address, chainId) {
 
     if (!chainConfig) {
         console.warn(`Unsupported network: ${currentChainId}.`);
-        showNotification('不支持的网络，请切换到支持的链', 'error');
+        showNotification(t('unsupported_network'), 'error');
 
         if (networkDisplay) {
-            networkDisplay.textContent = '未知网络';
+            networkDisplay.textContent = t('unknown_network');
             networkDisplay.style.display = 'inline-block';
         }
         return;
@@ -138,7 +140,7 @@ async function handleConnection(provider, address, chainId) {
     console.log(`Connected to ${chainConfig.name} (${currentChainId}). Contract: ${zEnvelopeAddress}`);
 
     if (!zEnvelopeAddress) {
-        showNotification(`该网络 (${chainConfig.name}) 暂未部署合约`, 'warning');
+        showNotification(t('contract_not_deployed', { name: chainConfig.name }), 'warning');
     }
 
     if (chainConfig.type === 'evm') {
@@ -177,7 +179,7 @@ async function handleConnection(provider, address, chainId) {
         await updateTronAssets();
     }
 
-    showNotification(`已连接到 ${chainConfig.name}`, 'success');
+    showNotification(t('connected_to', { name: chainConfig.name }), 'success');
 }
 
 async function updateTronAssets() {
@@ -189,7 +191,7 @@ async function updateTronAssets() {
         return;
     }
 
-    tokenSelect.innerHTML = '<option value="" disabled selected>正在加载资产...</option>';
+    tokenSelect.innerHTML = `<option value="" disabled selected>${t('loading_assets')}</option>`;
 
     const chainConfig = CHAIN_CONFIG['tron'];
 
@@ -203,7 +205,7 @@ async function updateTronAssets() {
         if (!data.success) {
             // If account not found on chain (new account), it might return success:false or just empty data
             console.warn("Tron account info fetch failed or account inactive:", data);
-            tokenSelect.innerHTML = '<option value="" disabled selected>余额不足 (0 TRX)</option>';
+            tokenSelect.innerHTML = `<option value="" disabled selected>${t('insufficient_balance_trx')}</option>`;
             return;
         }
 
@@ -277,15 +279,16 @@ async function updateTronAssets() {
             placeholder.value = "";
             placeholder.disabled = true;
             placeholder.selected = true;
-            placeholder.textContent = "请选择代币";
+            placeholder.setAttribute('data-i18n', 'select_token');
+            placeholder.textContent = t('select_token');
             tokenSelect.insertBefore(placeholder, tokenSelect.firstChild);
         } else {
-             tokenSelect.innerHTML = '<option value="" disabled selected>余额不足</option>';
+             tokenSelect.innerHTML = `<option value="" disabled selected>${t('insufficient_balance')}</option>`;
         }
 
     } catch (error) {
         console.error("Failed to fetch Tron assets:", error);
-        tokenSelect.innerHTML = '<option value="" disabled selected>加载失败</option>';
+        tokenSelect.innerHTML = `<option value="" disabled selected>${t('load_failed')}</option>`;
     }
 }
 
@@ -298,12 +301,12 @@ async function updateTonAssets() {
         return;
     }
 
-    tokenSelect.innerHTML = '<option value="" disabled selected>正在加载资产...</option>';
+    tokenSelect.innerHTML = `<option value="" disabled selected>${t('loading_assets')}</option>`;
 
     const chainConfig = CHAIN_CONFIG[currentChainId];
     if (!chainConfig || !chainConfig.rpcUrl) {
         console.warn("No RPC URL for TON");
-        tokenSelect.innerHTML = '<option value="" disabled selected>无法加载资产</option>';
+        tokenSelect.innerHTML = `<option value="" disabled selected>${t('cannot_load_assets')}</option>`;
         return;
     }
 
@@ -338,10 +341,11 @@ async function updateTonAssets() {
                 placeholder.value = "";
                 placeholder.disabled = true;
                 placeholder.selected = true;
-                placeholder.textContent = "请选择代币";
+                placeholder.setAttribute('data-i18n', 'select_token');
+                placeholder.textContent = t('select_token');
                 tokenSelect.insertBefore(placeholder, tokenSelect.firstChild);
             } else {
-                tokenSelect.innerHTML = '<option value="" disabled selected>余额不足 (0 TON)</option>';
+                tokenSelect.innerHTML = `<option value="" disabled selected>${t('insufficient_balance_ton')}</option>`;
             }
         } else {
             console.error("Invalid RPC response structure:", data);
@@ -350,7 +354,7 @@ async function updateTonAssets() {
 
     } catch (error) {
         console.error("Failed to fetch TON assets:", error);
-        tokenSelect.innerHTML = '<option value="" disabled selected>加载失败</option>';
+        tokenSelect.innerHTML = `<option value="" disabled selected>${t('load_failed')}</option>`;
     }
 }
 
@@ -366,14 +370,14 @@ async function updateSolanaAssets() {
         return;
     }
 
-    tokenSelect.innerHTML = '<option value="" disabled selected>正在加载资产...</option>';
+    tokenSelect.innerHTML = `<option value="" disabled selected>${t('loading_assets')}</option>`;
 
     const chainConfig = CHAIN_CONFIG[currentChainId];
     console.log("Chain Config:", chainConfig);
 
     if (!chainConfig || !chainConfig.rpcUrl) {
         console.warn("No RPC URL for Solana");
-        tokenSelect.innerHTML = '<option value="" disabled selected>无法加载资产</option>';
+        tokenSelect.innerHTML = `<option value="" disabled selected>${t('cannot_load_assets')}</option>`;
         return;
     }
 
@@ -409,10 +413,11 @@ async function updateSolanaAssets() {
                 placeholder.value = "";
                 placeholder.disabled = true;
                 placeholder.selected = true;
-                placeholder.textContent = "请选择代币";
+                placeholder.setAttribute('data-i18n', 'select_token');
+                placeholder.textContent = t('select_token');
                 tokenSelect.insertBefore(placeholder, tokenSelect.firstChild);
             } else {
-                tokenSelect.innerHTML = '<option value="" disabled selected>余额不足 (0 SOL)</option>';
+                tokenSelect.innerHTML = `<option value="" disabled selected>${t('insufficient_balance_sol')}</option>`;
             }
         } else {
             console.error("Invalid RPC response structure:", data);
@@ -421,7 +426,7 @@ async function updateSolanaAssets() {
 
     } catch (error) {
         console.error("Failed to fetch Solana assets:", error);
-        tokenSelect.innerHTML = '<option value="" disabled selected>加载失败</option>';
+        tokenSelect.innerHTML = `<option value="" disabled selected>${t('load_failed')}</option>`;
     }
 }
 
@@ -432,7 +437,8 @@ function handleDisconnect() {
     zEnvelopeAddress = null;
     const verifyBtn = document.querySelector('.verify-btn');
     if (verifyBtn) {
-        verifyBtn.textContent = '连接钱包';
+        verifyBtn.setAttribute('data-i18n', 'connect_wallet'); // Restore i18n
+        verifyBtn.textContent = t('connect_wallet');
     }
 
     const networkDisplay = document.getElementById('network-display');
@@ -442,7 +448,7 @@ function handleDisconnect() {
 
     const tokenSelect = document.getElementById('token-address');
     if (tokenSelect) {
-        tokenSelect.innerHTML = '<option value="" disabled selected>请先连接钱包</option>';
+        tokenSelect.innerHTML = `<option value="" disabled selected>${t('option_connect_first')}</option>`;
     }
 }
 
@@ -453,7 +459,7 @@ async function scanForTokens() {
     }
 
     const statusSpan = document.getElementById('scan-status');
-    if (statusSpan) statusSpan.textContent = '正在自动扫描代币...';
+    if (statusSpan) statusSpan.textContent = t('scanning_tokens');
 
     const tokenSelect = document.getElementById('token-address');
 
@@ -493,8 +499,8 @@ async function scanForTokens() {
             } catch (apiError) {
                 console.warn(`Scan attempt ${attempt + 1} failed:`, apiError);
                 if (attempt === maxRetries - 1) {
-                    if (statusSpan) statusSpan.textContent = '扫描失败，请重试';
-                    throw new Error("无法获取代币列表");
+                    if (statusSpan) statusSpan.textContent = t('scan_failed_retry');
+                    throw new Error(t('scan_failed_retry'));
                 }
                 // Wait 1s before retry
                 await new Promise(r => setTimeout(r, 1000));
@@ -506,7 +512,7 @@ async function scanForTokens() {
         if (tokenSelect) {
             // Remove "Loading assets..." option
             for (let i = 0; i < tokenSelect.options.length; i++) {
-                if (tokenSelect.options[i].text === "正在加载资产...") {
+                if (tokenSelect.options[i].text === t('loading_assets')) {
                     tokenSelect.remove(i);
                     break;
                 }
@@ -555,13 +561,13 @@ async function scanForTokens() {
                 placeholder.value = "";
                 placeholder.disabled = true;
                 placeholder.selected = true;
-                placeholder.textContent = "未发现任何可用代币";
+                placeholder.textContent = t('no_tokens_found');
                 tokenSelect.insertBefore(placeholder, tokenSelect.firstChild);
             }
         }
     } catch (error) {
         console.error("Scan failed:", error);
-        if (statusSpan) statusSpan.textContent = '扫描失败，请重试';
+        if (statusSpan) statusSpan.textContent = t('scan_failed_retry');
     }
 }
 
@@ -640,7 +646,7 @@ document.addEventListener('DOMContentLoaded', async function () {
         if (tokenAddress === 'custom') {
             tokenAddress = document.getElementById('custom-token-address').value;
             if (!ethers.utils.isAddress(tokenAddress)) {
-                showNotification('请输入有效的代币合约地址', 'error');
+                showNotification(t('invalid_token_address'), 'error');
                 return;
             }
         }
@@ -653,27 +659,27 @@ document.addEventListener('DOMContentLoaded', async function () {
 
         // Validate form
         if (!tokenAddress || !amount || !recipientCount || !password) {
-            showNotification('请填写所有必填字段。', 'error');
+            showNotification(t('fill_required_fields'), 'error');
             return;
         }
 
         // Show loading state on button
         const submitBtn = document.querySelector('.submit-btn');
         const originalText = submitBtn.innerHTML;
-        submitBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> 处理中...';
+        submitBtn.innerHTML = `<i class="fas fa-spinner fa-spin"></i> ${t('processing')}`;
         submitBtn.disabled = true;
 
         // Real contract call
         (async () => {
             try {
                 if (!currentAccount) {
-                    showNotification('请先连接钱包', 'error');
-                    throw new Error('钱包未连接');
+                    showNotification(t('wallet_not_connected'), 'error');
+                    throw new Error(t('wallet_not_connected'));
                 }
 
                 if (!zEnvelopeAddress) {
-                    showNotification('当前网络暂不支持或未配置合约地址', 'error');
-                    throw new Error('合约地址未配置');
+                    showNotification(t('network_not_supported'), 'error');
+                    throw new Error(t('contract_not_configured'));
                 }
 
                 // zEnvelopeAddress is already set in handleProviderChange
@@ -698,19 +704,19 @@ document.addEventListener('DOMContentLoaded', async function () {
 
                     if (allowance.lt(amountWei)) {
                         // Step 1: Approve
-                        showNotification('需要授权交易以允许合约转移您的代币', 'info');
+                        showNotification(t('approval_required'), 'info');
                         const approveTx = await erc20Contract.approve(zEnvelopeAddress, amountWei); // Approve exact amount
 
-                        submitBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> 正在授权...';
+                        submitBtn.innerHTML = `<i class="fas fa-spinner fa-spin"></i> ${t('approving')}`;
                         await approveTx.wait();
 
-                        showNotification('授权成功！正在创建红包...', 'info');
-                        submitBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> 正在创建...';
+                        showNotification(t('approval_success'), 'info');
+                        submitBtn.innerHTML = `<i class="fas fa-spinner fa-spin"></i> ${t('creating')}`;
                         // Continue to Step 2 automatically
                     }
 
                     // Step 2: Create ERC20 envelope (Allowance is sufficient)
-                    showNotification('正在创建红包...', 'info');
+                    showNotification(t('creating_envelope'), 'info');
 
                     // Fetch service fee
                     const serviceFee = await zEnvelopeContract.serviceFee();
@@ -730,7 +736,7 @@ document.addEventListener('DOMContentLoaded', async function () {
                 } else {
                     // Native Token Logic (ETH, BNB, MATIC, etc.)
                     const amountWei = ethers.utils.parseEther(amount);
-                    showNotification('正在创建红包...', 'info');
+                    showNotification(t('creating_envelope'), 'info');
 
                     // Fetch service fee
                     const serviceFee = await zEnvelopeContract.serviceFee();
@@ -751,7 +757,7 @@ document.addEventListener('DOMContentLoaded', async function () {
 
             } catch (error) {
                 console.error('创建红包失败:', error);
-                showNotification(`创建红包失败: ${error.message}`, 'error');
+                showNotification(`${t('create_failed')} ${error.message}`, 'error');
                 submitBtn.innerHTML = originalText;
                 submitBtn.disabled = false;
             }
@@ -762,7 +768,7 @@ document.addEventListener('DOMContentLoaded', async function () {
 async function handleTransactionReceipt(tx) {
     const submitBtn = document.querySelector('.submit-btn');
     const receipt = await tx.wait();
-    showNotification('红包创建成功！', 'success');
+    showNotification(t('create_success'), 'success');
 
     // Find and parse the EnvelopeCreated event
     const event = receipt.events?.find(e => e.event === 'EnvelopeCreated');
@@ -784,7 +790,7 @@ async function handleTransactionReceipt(tx) {
     }
 
     // Reset button
-    submitBtn.innerHTML = '创建红包';
+    submitBtn.innerHTML = t('btn_create');
     submitBtn.disabled = false;
 }
 
@@ -831,7 +837,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 if (module.modal) {
                     module.modal.open();
                 } else {
-                    showNotification('Web3Modal 初始化失败', 'error');
+                    showNotification(t('web3modal_init_failed'), 'error');
                 }
             });
         });
@@ -886,7 +892,7 @@ async function connectToTron() {
         }
     } catch (error) {
         console.error("Tron connection error:", error);
-        showNotification("连接波场失败: " + error.message, 'error');
+        showNotification(t('connect_tron_failed') + error.message, 'error');
     }
 }
 
@@ -900,12 +906,12 @@ async function updateUserAssets() {
 
     if (!provider || !signer || typeof ethers === 'undefined') {
         console.log("Ethers provider not initialized or Ethers.js not loaded. Cannot fetch assets.");
-        tokenSelect.innerHTML = '<option value="" disabled selected>请先连接钱包</option>';
+        tokenSelect.innerHTML = `<option value="" disabled selected>${t('option_connect_first')}</option>`;
         return;
     }
 
     const userAddress = await signer.getAddress();
-    tokenSelect.innerHTML = '<option value="" disabled selected>正在加载资产...</option>';
+    tokenSelect.innerHTML = `<option value="" disabled selected>${t('loading_assets')}</option>`;
     let assetsFound = 0;
 
     try {
@@ -941,7 +947,8 @@ async function updateUserAssets() {
         placeholder.value = "";
         placeholder.disabled = true;
         placeholder.selected = true;
-        placeholder.textContent = "请选择代币";
+        placeholder.setAttribute('data-i18n', 'select_token');
+        placeholder.textContent = t('select_token');
         tokenSelect.insertBefore(placeholder, tokenSelect.firstChild);
     }
     // If no assets found, we wait for the scan to finish.
