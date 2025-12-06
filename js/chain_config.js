@@ -63,7 +63,7 @@ export const CHAIN_CONFIG = {
     'solana': {
         name: 'Solana',
         type: 'solana',
-        contractAddress: '82M2bQAZKCJdGmYZiGMmLiobdj9XHmyxvuQhbw99Mxo4',
+        contractAddress: '2BQGTYBozUfUwNBjtMJxgrzbVPzgiFB2gpKfdkCM9k1d',
         rpcUrl: 'https://api.devnet.solana.com',
         // rpcUrl: 'https://rpc.ankr.com/solana/8ef907fdef25f2c26860c4cc9d8b0ed76552a28b94008c2a4f39987f7468c308',
         explorerUrl: 'https://explorer.solana.com',
@@ -73,8 +73,11 @@ export const CHAIN_CONFIG = {
     'ton': {
         name: 'TON',
         type: 'ton',
-        contractAddress: '',
-        rpcUrl: 'https://toncenter.com/api/v2/jsonRPC',
+        contractAddress: 'EQAcMdwYuz2Q-NvpWg_nsEqqivGmADLiosboDcAxD4zW2vHe',
+        // rpcUrl: 'https://toncenter.com/api/v2/jsonRPC',
+        rpcUrl: 'https://testnet.toncenter.com/api/v2/jsonRPC',
+        apiUrl: 'https://testnet.toncenter.com/api/v3',
+        apiUrl2: 'https://testnet.toncenter.com/api/v2',
         explorerUrl: 'https://tonscan.org',
         currency: 'TON'
     },
@@ -82,8 +85,9 @@ export const CHAIN_CONFIG = {
     'tron': {
         name: 'Tron',
         type: 'tron',
-        contractAddress: '',
-        rpcUrl: 'https://api.trongrid.io',
+        contractAddress: 'TUsZK3mv9LSomfi4UahGFb3aeBgEWTSUjW',
+        // rpcUrl: 'https://api.trongrid.io',
+        rpcUrl: 'https://api.shasta.trongrid.io',
         explorerUrl: 'https://tronscan.org',
         currency: 'TRX'
     }

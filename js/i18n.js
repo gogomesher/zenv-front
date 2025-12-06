@@ -1,7 +1,7 @@
 const translations = {
     "zh-CN": {
         "title": "zEnvelope - 加密口令红包",
-        "loading": "页面加载中...",
+        "loading": "Loading...",
         "nav_send": "发红包",
         "nav_receive": "收红包",
         "connect_wallet": "连接钱包",
@@ -165,7 +165,7 @@ const translations = {
     }
 };
 
-let currentLang = localStorage.getItem('language') || 'zh-CN';
+let currentLang = localStorage.getItem('language') || 'en';
 
 function setLanguage(lang) {
     if (!translations[lang]) return;
@@ -193,6 +193,9 @@ function updatePageContent() {
                 element.placeholder = translations[currentLang][key];
             } else {
                 element.innerHTML = translations[currentLang][key];
+            }
+            if (key == 'option_connect_first') {
+                console.log(element.tagName, element.placeholder, element.innerHTML);
             }
         }
     });
