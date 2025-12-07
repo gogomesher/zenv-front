@@ -24,7 +24,7 @@ const projectId = 'a5498791a3ace64d6c1fb542a5a659bf'
 const metadata = {
   name: 'zEnvelope',
   description: 'zEnvelope App',
-  url: 'https://zenvelope.app', // origin must match your domain & subdomain
+  url: 'https://play.zenvelope.xyz', // origin must match your domain & subdomain
   icons: ['https://avatars.githubusercontent.com/u/179229932']
 }
 
@@ -50,7 +50,7 @@ const modal = createAppKit({
 let tonConnectUI = null;
 try {
   tonConnectUI = new TonConnectUI({
-    manifestUrl: 'https://zenvelope.app/tonconnect-manifest.json'
+    manifestUrl: 'https://play.zenvelope.xyz/tonconnect-manifest.json'
   });
   console.log("TonConnectUI initialized successfully");
   
