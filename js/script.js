@@ -1916,16 +1916,19 @@ async function handleTonCreateEnvelope(tokenAddress, amount, recipientCount, dis
             const amountInSmallestUnit = BigInt(Math.floor(parseFloat(amount) * Math.pow(10, jettonDecimals)));
             console.log("[TON] Jetton amount in smallest unit:", amountInSmallestUnit.toString(), "decimals:", jettonDecimals);
 
-            // Payload for notification
-            const payloadCell = new TonWeb.boc.Cell();
-            payloadCell.bits.writeUint(validityInSeconds, 32);
-            payloadCell.bits.writeUint(recipientCount, 32);
-            payloadCell.bits.writeUint(parseInt(distributionType), 8);
-            writeStringSnake(payloadCell, hashedPassword);
-
-            const forwardPayload = payloadCell;
+            // Build forwardPayload as a separate Cell (reference)
+            // Format: jettonMaster (Address) + validity (32) + numberOfRecipients (32) + distributionType (8) + passwordHash (remaining)
+            const forwardPayloadCell = new TonWeb.boc.Cell();
+            forwardPayloadCell.bits.writeAddress(new TonWeb.utils.Address(tokenAddress)); // jettonMaster
+            forwardPayloadCell.bits.writeUint(validityInSeconds, 32);
+            forwardPayloadCell.bits.writeUint(recipientCount, 32);
+            forwardPayloadCell.bits.writeUint(parseInt(distributionType), 8);
+            // Password hash - write as string (may need continuation cells)
+            writeStringSnake(forwardPayloadCell, hashedPassword);
 
             // Jetton Transfer Body
+            // According to TEP-74, forwardPayload can be either inline (if fits) or as reference
+            // We use reference (writeBit(true)) because our payload is large
             const bodyCell = new TonWeb.boc.Cell();
             bodyCell.bits.writeUint(0xf8a7ea5, 32); // Opcode TokenTransfer
             bodyCell.bits.writeUint(0, 64); // queryId
@@ -1933,16 +1936,27 @@ async function handleTonCreateEnvelope(tokenAddress, amount, recipientCount, dis
             bodyCell.bits.writeAddress(new TonWeb.utils.Address(contractAddress)); // destination
             bodyCell.bits.writeAddress(new TonWeb.utils.Address(userAddress)); // responseDestination
             bodyCell.bits.writeBit(false); // customPayload null
-            bodyCell.bits.writeCoins(TonWeb.utils.toNano('0.1')); // forwardTonAmount (这里是TON，使用9位小数)
-            bodyCell.bits.writeBit(true); // forwardPayload as reference
-            bodyCell.refs.push(forwardPayload);
+            // forwardTonAmount 需要足够支付：
+            // 1. 合约存储红包数据的费用 (~0.05 TON)
+            // 2. 如果有手续费，发送 TokenTransfer 到 admin 的费用 (~0.1 TON，包括创建admin jetton wallet)
+            // 3. emit 事件的费用 (~0.01 TON)
+            // 4. 合约的 Jetton Wallet 可能需要初始化 (~0.05 TON)
+            // 设置为 0.5 TON 以确保足够
+            bodyCell.bits.writeCoins(TonWeb.utils.toNano('0.02')); // forwardTonAmount for contract operations
+            bodyCell.bits.writeBit(true); // forwardPayload as reference (either bit = 1)
+            bodyCell.refs.push(forwardPayloadCell);
 
+            // 发送的总TON = forwardTonAmount + jetton钱包处理费用 + 合约jetton钱包处理费用
+            // forwardTonAmount: 0.5 TON (转发给合约用于存储、手续费转账和事件)
+            // 用户jetton钱包处理费用: 约0.1 TON
+            // 合约jetton钱包处理费用: 约0.1 TON
+            // 总计: 0.7 TON，为安全起见发送1.0 TON
             const transaction = {
                 validUntil: Math.floor(Date.now() / 1000) + 300,
                 messages: [
                     {
                         address: jettonWallet,
-                        amount: TonWeb.utils.toNano('0.15').toString(), // Gas
+                        amount: TonWeb.utils.toNano('0.2').toString(), // Gas: forwardTonAmount(0.5) + jetton处理费(~0.2) + 余量
                         payload: TonWeb.utils.bytesToBase64(await bodyCell.toBoc())
                     }
                 ]
@@ -1979,16 +1993,30 @@ async function handleTonCreateEnvelope(tokenAddress, amount, recipientCount, dis
     }
 }
 
-// Handle TON transaction result - parse EventEnvelopeCreated event to get envelopeId
+// Handle TON transaction result - parse EventEnvelopeCreated or EventJettonEnvelopeCreated event to get envelopeId
 async function handleTonTransactionResult(result, contractAddress) {
     const submitBtn = document.querySelector('.submit-btn');
     console.log("[TON] Processing transaction result...");
 
-    // EventEnvelopeCreated message structure from Tact:
+    // EventEnvelopeCreated message structure from Tact (for Native TON):
     // message EventEnvelopeCreated {
     //     envelopeId: Int as uint256;
     //     creator: Address;
     //     tokenAddress: Address?;
+    //     jettonMaster: Address?;
+    //     totalAmount: Int as coins;
+    //     expiresAt: Int as uint32;
+    //     numberOfRecipients: Int as uint32;
+    //     distributionType: Int as uint8;
+    // }
+    //
+    // EventJettonEnvelopeCreated message structure from Tact (for Jetton):
+    // message EventJettonEnvelopeCreated {
+    //     envelopeId: Int as uint256;
+    //     creator: Address;
+    //     jettonWallet: Address;
+    //     jettonMaster: Address;
+    //     totalAmount: Int as coins;
     //     expiresAt: Int as uint32;
     //     numberOfRecipients: Int as uint32;
     //     distributionType: Int as uint8;
@@ -1998,10 +2026,6 @@ async function handleTonTransactionResult(result, contractAddress) {
         showNotification(t('tx_sent_waiting') || 'Transaction sent, waiting for confirmation...', 'info');
 
         const chainConfig = CHAIN_CONFIG['ton'];
-        // const isTestnet = chainConfig.rpcUrl.includes('testnet');
-        // const apiBase = isTestnet
-        //     ? 'https://testnet.toncenter.com/api/v2'
-        //     : 'https://toncenter.com/api/v2';
         const apiBase = chainConfig.apiUrl2;
 
         const TonWeb = window.TonWeb;
@@ -2014,7 +2038,7 @@ async function handleTonTransactionResult(result, contractAddress) {
         const userAddress = currentAccount;
         console.log("[TON] Current user address:", userAddress);
         
-        // 地址标准化函数
+        // 地址标准化函数 - 返回原始格式 (workchain:hex)
         const normalizeAddress = (addr) => {
             if (!addr) return '';
             try {
@@ -2024,44 +2048,62 @@ async function handleTonTransactionResult(result, contractAddress) {
             }
         };
         
+        // 获取地址的原始格式用于比较
+        const getRawAddress = (addr) => {
+            if (!addr) return '';
+            try {
+                const address = new TonWeb.utils.Address(addr);
+                const wc = address.wc;
+                const hashHex = TonWeb.utils.bytesToHex(address.hashPart);
+                return `${wc}:${hashHex.toLowerCase()}`;
+            } catch (e) {
+                return addr.toLowerCase();
+            }
+        };
+        
+        // 比较两个地址是否相同
+        const addressEquals = (addr1, addr2) => {
+            if (!addr1 || !addr2) return false;
+            return getRawAddress(addr1) === getRawAddress(addr2);
+        };
+        
         const normalizedUserAddress = normalizeAddress(userAddress);
+        const rawUserAddress = getRawAddress(userAddress);
         console.log("[TON] Normalized user address:", normalizedUserAddress);
+        console.log("[TON] Raw user address:", rawUserAddress);
         
         // 等待交易确认并查询事件
         let envelopeId = null;
         let attempts = 0;
-        const maxAttempts = 20; // 最多等待40秒
+        const maxAttempts = 30; // 最多等待60秒
 
         while (attempts < maxAttempts && envelopeId === null) {
             attempts++;
-            await new Promise(resolve => setTimeout(resolve, 2000));
+            await new Promise(resolve => setTimeout(resolve, 10000));
 
             try {
                 // 查询合约的最近交易
-                const txResponse = await fetch(`${apiBase}/getTransactions?address=${contractAddress}&limit=10`);
+                const txResponse = await fetch(`${apiBase}/getTransactions?address=${contractAddress}&limit=20`);
                 const txData = await txResponse.json();
                 console.log(`[TON] Attempt ${attempts}: Fetched ${txData.result?.length || 0} transactions`);
 
                 if (txData.ok && txData.result && txData.result.length > 0) {
-                    // 遍历最近的交易，查找EventEnvelopeCreated事件
+                    // 遍历最近的交易，查找EventEnvelopeCreated或EventJettonEnvelopeCreated事件
                     for (const tx of txData.result) {
-                        // 过滤条件1: 检查 in_msg.source 是否等于当前用户地址
-                        const inMsgSource = tx.in_msg?.source || '';
-                        const normalizedInMsgSource = normalizeAddress(inMsgSource);
-                        
-                        if (normalizedInMsgSource !== normalizedUserAddress) {
-                            console.log(`[TON] Skipping tx: in_msg.source (${normalizedInMsgSource}) != user address (${normalizedUserAddress})`);
-                            continue;
-                        }
-                        
-                        // 过滤条件2: 检查 utime 是否早于交易发起时间（即交易发生在我们发起之后）
+                        // 过滤条件1: 检查 utime 是否在交易发起时间之后
                         const txUtime = tx.utime || 0;
                         if (txUtime < txStartTime - 10) { // 允许10秒的时间误差
-                            console.log(`[TON] Skipping tx: utime (${txUtime}) is before txStartTime (${txStartTime})`);
                             continue;
                         }
                         
-                        console.log(`[TON] Found valid tx: in_msg.source=${normalizedInMsgSource}, utime=${txUtime}`);
+                        // 过滤条件2: 检查 in_msg.source
+                        // 对于 Native TON 红包: in_msg.source 是用户地址
+                        // 对于 Jetton 红包: in_msg.source 是 Jetton Wallet 地址（不是用户地址）
+                        // 所以我们不能仅通过 in_msg.source 过滤，需要检查事件内容
+                        const inMsgSource = tx.in_msg?.source || '';
+                        const isFromUser = addressEquals(inMsgSource, userAddress);
+                        
+                        console.log(`[TON] Checking tx: utime=${txUtime}, in_msg.source=${inMsgSource}, isFromUser=${isFromUser}`);
                         
                         // 检查out_msgs中的外部消息（事件通过emit发送为外部消息）
                         if (tx.out_msgs && tx.out_msgs.length > 0) {
@@ -2078,22 +2120,41 @@ async function handleTonTransactionResult(result, contractAddress) {
                                             const slice = bodyCell.beginParse();
                                             
                                             // 读取opcode (32 bits)
-                                            // EventEnvelopeCreated的opcode需要从Tact编译结果获取
-                                            // 通常是消息名称的CRC32
                                             const opcode = slice.loadUint(32).toNumber();
                                             console.log("[TON] Found external message with opcode:", "0x" + opcode.toString(16));
                                             
-                                            // EventEnvelopeCreated opcode: 计算 "EventEnvelopeCreated" 的 CRC32
-                                            // 或者从编译报告中获取
                                             // 尝试解析envelopeId (uint256)
                                             const parsedEnvelopeId = slice.loadUint(256);
-                                            console.log("[TON] Parsed envelopeId:", parsedEnvelopeId.toString());
+                                            
+                                            // 尝试解析creator地址
+                                            let creatorAddress = null;
+                                            try {
+                                                creatorAddress = slice.loadAddress();
+                                                console.log("[TON] Parsed creator address:", creatorAddress?.toString(true, true, true));
+                                            } catch (addrErr) {
+                                                console.log("[TON] Could not parse creator address");
+                                            }
                                             
                                             // 验证这是一个有效的envelopeId（大于0的整数）
                                             if (parsedEnvelopeId.gt(new TonWeb.utils.BN(0))) {
-                                                envelopeId = parsedEnvelopeId.toString();
-                                                console.log("[TON] Found EventEnvelopeCreated, envelopeId:", envelopeId);
-                                                break;
+                                                // 验证creator是否是当前用户
+                                                if (creatorAddress) {
+                                                    const creatorRaw = getRawAddress(creatorAddress.toString(true, true, true));
+                                                    if (creatorRaw === rawUserAddress) {
+                                                        envelopeId = parsedEnvelopeId.toString();
+                                                        console.log("[TON] Found envelope created by current user, envelopeId:", envelopeId);
+                                                        break;
+                                                    } else {
+                                                        console.log("[TON] Creator mismatch:", creatorRaw, "!=", rawUserAddress);
+                                                    }
+                                                } else {
+                                                    // 如果无法解析creator，但交易来自用户，也接受
+                                                    if (isFromUser) {
+                                                        envelopeId = parsedEnvelopeId.toString();
+                                                        console.log("[TON] Found envelope (from user tx), envelopeId:", envelopeId);
+                                                        break;
+                                                    }
+                                                }
                                             }
                                         } catch (parseErr) {
                                             console.log("[TON] Failed to parse message:", parseErr.message);
@@ -2104,6 +2165,85 @@ async function handleTonTransactionResult(result, contractAddress) {
                             }
                         }
                         if (envelopeId) break;
+                    }
+                }
+                
+                // 方法2: 如果通过事件解析失败，尝试通过 nextEnvelopeId 变化检测
+                if (!envelopeId && attempts >= 5) {
+                    try {
+                        const response = await fetch(`${apiBase}/runGetMethod`, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({
+                                address: contractAddress,
+                                method: 'nextEnvelopeId',
+                                stack: []
+                            })
+                        });
+                        const data = await response.json();
+                        
+                        if (data.ok && data.result && data.result.stack && data.result.stack.length > 0) {
+                            const stackItem = data.result.stack[0];
+                            let currentNextId = null;
+                            if (Array.isArray(stackItem) && stackItem.length >= 2) {
+                                currentNextId = parseInt(stackItem[1], 16);
+                            } else if (typeof stackItem === 'string') {
+                                currentNextId = parseInt(stackItem, 16);
+                            }
+                            
+                            // 如果 nextEnvelopeId 增加了，说明有新红包创建
+                            // 新创建的红包ID = currentNextId - 1
+                            if (currentNextId && currentNextId > 1) {
+                                const possibleEnvelopeId = currentNextId - 1;
+                                
+                                // 验证这个红包是否是当前用户创建的
+                                const envelopeResponse = await fetch(`${apiBase}/runGetMethod`, {
+                                    method: 'POST',
+                                    headers: { 'Content-Type': 'application/json' },
+                                    body: JSON.stringify({
+                                        address: contractAddress,
+                                        method: 'getEnvelope',
+                                        stack: [["num", possibleEnvelopeId.toString()]]
+                                    })
+                                });
+                                const envelopeData = await envelopeResponse.json();
+                                
+                                if (envelopeData.ok && envelopeData.result && envelopeData.result.stack) {
+                                    // 解析 creator 地址（第一个字段）
+                                    const stack = envelopeData.result.stack;
+                                    let creatorAddr = null;
+                                    
+                                    if (stack.length > 0) {
+                                        // 检查是否是 tuple 格式
+                                        if (stack[0][0] === 'tuple' && stack[0][1].elements) {
+                                            const elements = stack[0][1].elements;
+                                            if (elements.length > 0 && elements[0].type === 'cell') {
+                                                try {
+                                                    const cellBoc = TonWeb.utils.base64ToBytes(elements[0].value.bytes);
+                                                    const cell = TonWeb.boc.Cell.oneFromBoc(cellBoc);
+                                                    const slice = cell.beginParse();
+                                                    creatorAddr = slice.loadAddress();
+                                                } catch (e) {}
+                                            }
+                                        } else if (stack[0][0] === 'cell') {
+                                            try {
+                                                const cellBoc = TonWeb.utils.base64ToBytes(stack[0][1].bytes);
+                                                const cell = TonWeb.boc.Cell.oneFromBoc(cellBoc);
+                                                const slice = cell.beginParse();
+                                                creatorAddr = slice.loadAddress();
+                                            } catch (e) {}
+                                        }
+                                    }
+                                    
+                                    if (creatorAddr && addressEquals(creatorAddr.toString(true, true, true), userAddress)) {
+                                        envelopeId = possibleEnvelopeId.toString();
+                                        console.log("[TON] Found envelope via nextEnvelopeId check, envelopeId:", envelopeId);
+                                    }
+                                }
+                            }
+                        }
+                    } catch (e) {
+                        console.warn("[TON] nextEnvelopeId check failed:", e);
                     }
                 }
             } catch (pollErr) {
@@ -2124,7 +2264,7 @@ async function handleTonTransactionResult(result, contractAddress) {
             resultMessage.scrollIntoView({ behavior: 'smooth' });
         } else {
             // 交易已发送但无法解析事件
-            console.log("[TON] Transaction sent but couldn't parse EventEnvelopeCreated event.");
+            console.log("[TON] Transaction sent but couldn't parse event.");
             showNotification(t('create_success_no_id') || 'Red packet created! Check transaction for details.', 'success');
             
             const resultMessage = document.getElementById('result-message');

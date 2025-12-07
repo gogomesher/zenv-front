@@ -933,6 +933,10 @@ async function handleTonClaim(envelopeId, hashedPassword, zEnvelopeAddress) {
 
             // 轮询监听 EventEnvelopeClaimed 事件
             // TON 事件通过 external out messages 发出，需要轮询合约交易来获取
+            // EventEnvelopeClaimed opcode: 0xaac445d8 (从 tact_ZEnvelope.md 获取)
+            // 结构: envelopeId(uint256) + claimer(address) + amount(coins) + tokenAddress(address)
+            const EVENT_ENVELOPE_CLAIMED_OPCODE = 0xaac445d8;
+            
             const maxAttempts = 40; // 40 * 3s = 120s timeout
             let attempts = 0;
             let claimedAmount = null;
@@ -941,8 +945,138 @@ async function handleTonClaim(envelopeId, hashedPassword, zEnvelopeAddress) {
             const claimStartTime = Math.floor(Date.now() / 1000);
             console.log("Claim start time:", claimStartTime);
 
+            // 先获取红包信息，判断是 Native 还是 Jetton 红包
+            let isJettonEnvelope = false;
+            let envelopeJettonWallet = null; // 合约的 Jetton Wallet 地址
+            let envelopeJettonMaster = null;
+
             // 保存初始的 claimedRecipientsCount 用于比较
             let initialClaimedCount = null;
+            let initialRemainingAmount = null;
+            
+            // 辅助函数：解析 getEnvelope 返回的 stack
+            // Tact 返回 Envelope 结构体时，会序列化为一个 tuple
+            // 但 TON API 可能返回为单个 cell 或 tuple
+            function parseEnvelopeStack(stack) {
+                const result = {
+                    tokenAddress: null,
+                    jettonMaster: null,
+                    totalAmount: null,
+                    remainingAmount: null,
+                    claimedRecipientsCount: null,
+                    numberOfRecipients: null,
+                    distributionType: null
+                };
+                
+                console.log("Parsing envelope stack, length:", stack.length, "stack:", JSON.stringify(stack));
+                
+                // 检查是否是 tuple 格式 (Tact 结构体返回)
+                if (stack.length === 1 && stack[0][0] === 'tuple') {
+                    // 结构体作为 tuple 返回
+                    const tupleItems = stack[0][1].elements;
+                    console.log("Envelope returned as tuple with", tupleItems.length, "elements");
+                    
+                    // 根据 Envelope 结构体字段顺序解析
+                    // 0: creator, 1: passwordHash, 2: tokenAddress, 3: jettonMaster, 
+                    // 4: totalAmount, 5: remainingAmount, 6: claimed, 7: createdAt, 
+                    // 8: expiresAt, 9: numberOfRecipients, 10: claimedRecipientsCount, 11: distributionType
+                    
+                    for (let i = 0; i < tupleItems.length; i++) {
+                        const item = tupleItems[i];
+                        console.log(`Tuple item ${i}:`, item);
+                        
+                        if (i === 2 && item.type === 'cell') {
+                            // tokenAddress
+                            try {
+                                const cellBoc = TonWeb.utils.base64ToBytes(item.value.bytes);
+                                const cell = TonWeb.boc.Cell.oneFromBoc(cellBoc);
+                                const slice = cell.beginParse();
+                                const addr = slice.loadAddress();
+                                if (addr && addr.toString() !== '0:0000000000000000000000000000000000000000000000000000000000000000') {
+                                    result.tokenAddress = addr.toString(true, true, true);
+                                }
+                            } catch (e) { console.log("tokenAddress parse error:", e); }
+                        } else if (i === 3 && item.type === 'cell') {
+                            // jettonMaster
+                            try {
+                                const cellBoc = TonWeb.utils.base64ToBytes(item.value.bytes);
+                                const cell = TonWeb.boc.Cell.oneFromBoc(cellBoc);
+                                const slice = cell.beginParse();
+                                const addr = slice.loadAddress();
+                                if (addr) {
+                                    result.jettonMaster = addr.toString(true, true, true);
+                                }
+                            } catch (e) { console.log("jettonMaster parse error:", e); }
+                        } else if (i === 4 && item.type === 'num') {
+                            result.totalAmount = BigInt(item.value);
+                        } else if (i === 5 && item.type === 'num') {
+                            result.remainingAmount = BigInt(item.value);
+                        } else if (i === 9 && item.type === 'num') {
+                            result.numberOfRecipients = parseInt(item.value);
+                        } else if (i === 10 && item.type === 'num') {
+                            result.claimedRecipientsCount = parseInt(item.value);
+                        } else if (i === 11 && item.type === 'num') {
+                            result.distributionType = parseInt(item.value);
+                        }
+                    }
+                } else {
+                    // 旧格式：直接作为 stack 数组返回
+                    // tokenAddress 是第3个字段 (索引2)
+                    if (stack.length > 2 && stack[2][0] === 'cell') {
+                        try {
+                            const cellBoc = TonWeb.utils.base64ToBytes(stack[2][1].bytes);
+                            const cell = TonWeb.boc.Cell.oneFromBoc(cellBoc);
+                            const slice = cell.beginParse();
+                            const addr = slice.loadAddress();
+                            if (addr && addr.toString() !== '0:0000000000000000000000000000000000000000000000000000000000000000') {
+                                result.tokenAddress = addr.toString(true, true, true);
+                            }
+                        } catch (e) { console.log("tokenAddress parse error:", e); }
+                    }
+                    
+                    // jettonMaster 是第4个字段 (索引3)
+                    if (stack.length > 3 && stack[3][0] === 'cell') {
+                        try {
+                            const cellBoc = TonWeb.utils.base64ToBytes(stack[3][1].bytes);
+                            const cell = TonWeb.boc.Cell.oneFromBoc(cellBoc);
+                            const slice = cell.beginParse();
+                            const addr = slice.loadAddress();
+                            if (addr) {
+                                result.jettonMaster = addr.toString(true, true, true);
+                            }
+                        } catch (e) { console.log("jettonMaster parse error:", e); }
+                    }
+                    
+                    // totalAmount 是第5个字段 (索引4)
+                    if (stack.length > 4 && stack[4][0] === 'num') {
+                        result.totalAmount = BigInt(stack[4][1]);
+                    }
+                    
+                    // remainingAmount 是第6个字段 (索引5)
+                    if (stack.length > 5 && stack[5][0] === 'num') {
+                        result.remainingAmount = BigInt(stack[5][1]);
+                    }
+                    
+                    // numberOfRecipients 是第10个字段 (索引9)
+                    if (stack.length > 9 && stack[9][0] === 'num') {
+                        result.numberOfRecipients = parseInt(stack[9][1], 16);
+                    }
+                    
+                    // claimedRecipientsCount 是第11个字段 (索引10)
+                    if (stack.length > 10 && stack[10][0] === 'num') {
+                        result.claimedRecipientsCount = parseInt(stack[10][1], 16);
+                    }
+                    
+                    // distributionType 是第12个字段 (索引11)
+                    if (stack.length > 11 && stack[11][0] === 'num') {
+                        result.distributionType = parseInt(stack[11][1], 16);
+                    }
+                }
+                
+                console.log("Parsed envelope result:", result);
+                return result;
+            }
+            
             try {
                 const initResponse = await fetch(`${apiBase}/runGetMethod`, {
                     method: 'POST',
@@ -954,18 +1088,26 @@ async function handleTonClaim(envelopeId, hashedPassword, zEnvelopeAddress) {
                     })
                 });
                 const initData = await initResponse.json();
+                console.log("Initial getEnvelope response:", JSON.stringify(initData));
+                
                 if (initData.ok && initData.result && initData.result.stack) {
-                    // Envelope 结构返回为 tuple，解析 claimedRecipientsCount
-                    // 根据合约定义顺序: creator, passwordHash, tokenAddress, totalAmount, 
-                    // remainingAmount, claimed, createdAt, expiresAt, numberOfRecipients, 
-                    // claimedRecipientsCount, distributionType
                     const stack = initData.result.stack;
-                    console.log("Initial envelope state:", stack);
-                    // claimedRecipientsCount 是第10个字段 (索引9)
-                    if (stack.length > 9 && stack[9][0] === 'num') {
-                        initialClaimedCount = parseInt(stack[9][1], 16);
-                        console.log("Initial claimedRecipientsCount:", initialClaimedCount);
+                    const parsed = parseEnvelopeStack(stack);
+                    
+                    if (parsed.tokenAddress) {
+                        isJettonEnvelope = true;
+                        envelopeJettonWallet = parsed.tokenAddress;
+                        envelopeJettonMaster = parsed.jettonMaster;
+                        console.log("This is a Jetton envelope, Jetton Wallet:", envelopeJettonWallet);
+                        console.log("Jetton Master:", envelopeJettonMaster);
+                    } else {
+                        console.log("This is a Native TON envelope");
                     }
+                    
+                    initialRemainingAmount = parsed.remainingAmount;
+                    initialClaimedCount = parsed.claimedRecipientsCount;
+                    console.log("Initial remainingAmount:", initialRemainingAmount?.toString());
+                    console.log("Initial claimedRecipientsCount:", initialClaimedCount);
                 }
             } catch (e) {
                 console.warn("Failed to get initial envelope state:", e);
@@ -977,93 +1119,27 @@ async function handleTonClaim(envelopeId, hashedPassword, zEnvelopeAddress) {
                     try {
                         console.log(`Polling attempt ${attempts}/${maxAttempts}...`);
 
-                        // 方法1: 检查用户账户是否收到了来自合约的转账
-                        // 这是最可靠的方式，因为成功领取一定会有转账
-                        try {
-                            const userTxResponse = await fetch(`${apiBase}/getTransactions?address=${currentAccount}&limit=10`);
-                            const userTxData = await userTxResponse.json();
-
-                            if (userTxData.ok && userTxData.result) {
-                                for (const tx of userTxData.result) {
-                                    // 检查是否是来自合约的转账
-                                    if (tx.in_msg && tx.in_msg.source) {
-                                        const sourceAddr = tx.in_msg.source;
-                                        // TON 地址比较需要规范化，可能是 bounceable/non-bounceable 格式
-                                        if (sourceAddr.includes(contractAddress.split(':').pop()) ||
-                                            contractAddress.includes(sourceAddr.split(':').pop())) {
-                                            // 检查交易时间是否在领取请求之后
-                                            const txTime = tx.utime || 0;
-                                            if (txTime >= claimStartTime - 10) { // 允许10秒误差
-                                                const value = tx.in_msg.value;
-                                                if (value && parseInt(value) > 0) {
-                                                    claimedAmount = value;
-                                                    console.log("Found incoming transfer from contract:", claimedAmount, "at time:", txTime);
-                                                    clearInterval(pollInterval);
-                                                    resolve();
-                                                    return;
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
+            // 地址比较辅助函数
+                        const getRawAddress = (addr) => {
+                            if (!addr) return '';
+                            try {
+                                const address = new TonWeb.utils.Address(addr);
+                                const wc = address.wc;
+                                const hashHex = TonWeb.utils.bytesToHex(address.hashPart);
+                                return `${wc}:${hashHex.toLowerCase()}`;
+                            } catch (e) {
+                                return addr.toLowerCase();
                             }
-                        } catch (userTxError) {
-                            console.warn("Error checking user transactions:", userTxError);
-                        }
+                        };
+                        
+                        const addressEquals = (addr1, addr2) => {
+                            if (!addr1 || !addr2) return false;
+                            return getRawAddress(addr1) === getRawAddress(addr2);
+                        };
 
-                        // 方法2: 检查合约的 claimedRecipientsCount 是否增加
-                        try {
-                            const envelopeResponse = await fetch(`${apiBase}/runGetMethod`, {
-                                method: 'POST',
-                                headers: { 'Content-Type': 'application/json' },
-                                body: JSON.stringify({
-                                    address: contractAddress,
-                                    method: 'getEnvelope',
-                                    stack: [["num", envelopeId]]
-                                })
-                            });
-                            const envelopeData = await envelopeResponse.json();
-
-                            if (envelopeData.ok && envelopeData.result && envelopeData.result.stack) {
-                                const stack = envelopeData.result.stack;
-                                console.log("Current envelope state:", stack);
-
-                                // 解析 claimedRecipientsCount
-                                if (stack.length > 9 && stack[9][0] === 'num') {
-                                    const currentClaimedCount = parseInt(stack[9][1], 16);
-                                    console.log("Current claimedRecipientsCount:", currentClaimedCount);
-
-                                    if (initialClaimedCount !== null && currentClaimedCount > initialClaimedCount) {
-                                        console.log("Claim confirmed! Count increased from", initialClaimedCount, "to", currentClaimedCount);
-
-                                        // 从 envelope 信息计算领取金额
-                                        // totalAmount 是第4个字段 (索引3)
-                                        // numberOfRecipients 是第9个字段 (索引8)
-                                        // distributionType 是第11个字段 (索引10)
-                                        if (stack.length > 10) {
-                                            const totalAmount = stack[3][0] === 'num' ? BigInt('0x' + stack[3][1]) : BigInt(0);
-                                            const numberOfRecipients = stack[8][0] === 'num' ? parseInt(stack[8][1], 16) : 1;
-                                            const distributionType = stack[10][0] === 'num' ? parseInt(stack[10][1], 16) : 0;
-
-                                            if (distributionType === 0) {
-                                                // 平均分配
-                                                claimedAmount = (totalAmount / BigInt(numberOfRecipients)).toString();
-                                                console.log("Calculated average amount:", claimedAmount);
-                                            }
-                                            // 随机分配无法精确计算，保持 null
-                                        }
-
-                                        clearInterval(pollInterval);
-                                        resolve();
-                                        return;
-                                    }
-                                }
-                            }
-                        } catch (stateError) {
-                            console.warn("Error checking envelope state:", stateError);
-                        }
-
-                        // 方法3: 检查合约的外发消息 (events)
+                        // 方法3: 检查合约的外发消息，包括 EventEnvelopeClaimed 事件
+                        // EventEnvelopeClaimed opcode: 0x068c985c
+                        // 结构: envelopeId(uint256) + claimer(address) + amount(coins)
                         try {
                             const txResponse = await fetch(`${apiBase}/getTransactions?address=${contractAddress}&limit=20`);
                             const txData = await txResponse.json();
@@ -1077,15 +1153,114 @@ async function handleTonClaim(envelopeId, hashedPassword, zEnvelopeAddress) {
                                     // 检查外发消息
                                     if (tx.out_msgs && tx.out_msgs.length > 0) {
                                         for (const outMsg of tx.out_msgs) {
-                                            // 检查是否是发送给当前用户的消息
-                                            if (outMsg.destination) {
-                                                const destAddr = outMsg.destination;
-                                                // 地址匹配
-                                                if (destAddr.includes(currentAccount.split(':').pop()) ||
-                                                    currentAccount.includes(destAddr.split(':').pop())) {
+                                            // 首先检查是否是 EventEnvelopeClaimed 事件（外部消息，destination 为空）
+                                            if (outMsg.destination === '' || !outMsg.destination) {
+                                                // 这是一个外部消息（事件）
+                                                if (outMsg.msg_data && outMsg.msg_data.body) {
+                                                    try {
+                                                        const bodyBase64 = outMsg.msg_data.body;
+                                                        const bodyBytes = TonWeb.utils.base64ToBytes(bodyBase64);
+                                                        const bodyCell = TonWeb.boc.Cell.oneFromBoc(bodyBytes);
+                                                        const slice = bodyCell.beginParse();
+                                                        
+                                                        // 读取 opcode (32 bits)
+                                                        const eventOpcode = slice.loadUint(32).toNumber();
+                                                        console.log("[TON Claim] Found external message with opcode:", "0x" + eventOpcode.toString(16));
+                                                        
+                                                        // 检查是否是 EventEnvelopeClaimed (0x068c985c)
+                                                        if (eventOpcode === EVENT_ENVELOPE_CLAIMED_OPCODE) {
+                                                            console.log("[TON Claim] Found EventEnvelopeClaimed event!");
+                                                            
+                                                            // 解析 envelopeId (uint256)
+                                                            const eventEnvelopeId = slice.loadUint(256);
+                                                            console.log("[TON Claim] Event envelopeId:", eventEnvelopeId.toString());
+                                                            
+                                                            // 检查 envelopeId 是否匹配
+                                                            if (eventEnvelopeId.toString() === envelopeId.toString()) {
+                                                                // 解析 claimer (address)
+                                                                const eventClaimer = slice.loadAddress();
+                                                                console.log("[TON Claim] Event claimer:", eventClaimer?.toString(true, true, true));
+                                                                
+                                                                // 检查 claimer 是否是当前用户
+                                                                if (eventClaimer && addressEquals(eventClaimer.toString(true, true, true), currentAccount)) {
+                                                                    // 解析 amount (coins)
+                                                                    const eventAmount = slice.loadCoins();
+                                                                    claimedAmount = eventAmount.toString();
+                                                                    console.log("[TON Claim] Event amount:", claimedAmount);
+                                                                    
+                                                                    // 解析 tokenAddress (MaybeAddress) - 新增字段
+                                                                    // MaybeAddress: 00 = null (Native TON), 10 = addr_std (Jetton)
+                                                                    try {
+                                                                        const eventTokenAddress = slice.loadAddress();
+                                                                        if (eventTokenAddress) {
+                                                                            console.log("[TON Claim] Event tokenAddress (Jetton):", eventTokenAddress.toString(true, true, true));
+                                                                            isJettonEnvelope = true;
+                                                                            envelopeJettonMaster = eventTokenAddress.toString(true, true, true);
+                                                                        }
+                                                                    } catch (addrErr) {
+                                                                        console.log("[TON Claim] No tokenAddress (Native TON)");
+                                                                    }
+                                                                    
+                                                                    clearInterval(pollInterval);
+                                                                    resolve();
+                                                                    return;
+                                                                } else {
+                                                                    console.log("[TON Claim] Claimer mismatch, skipping");
+                                                                }
+                                                            } else {
+                                                                console.log("[TON Claim] EnvelopeId mismatch:", eventEnvelopeId.toString(), "!=", envelopeId);
+                                                            }
+                                                        }
+                                                    } catch (parseErr) {
+                                                        console.log("[TON Claim] Failed to parse event message:", parseErr.message);
+                                                    }
+                                                }
+                                                continue; // 外部消息处理完毕，继续下一个
+                                            }
+                                            
+                                            const destAddr = outMsg.destination;
+                                            
+                                            if (isJettonEnvelope) {
+                                                // Jetton 红包：检查是否发送了 TokenTransfer 到 Jetton Wallet
+                                                // 目标地址应该是 envelopeJettonWallet
+                                                if (envelopeJettonWallet && addressEquals(destAddr, envelopeJettonWallet)) {
+                                                    // 检查消息体是否是 TokenTransfer (opcode 0x0f8a7ea5)
+                                                    if (outMsg.msg_data && outMsg.msg_data.body) {
+                                                        try {
+                                                            const bodyBase64 = outMsg.msg_data.body;
+                                                            const bodyBytes = TonWeb.utils.base64ToBytes(bodyBase64);
+                                                            const bodyCell = TonWeb.boc.Cell.oneFromBoc(bodyBytes);
+                                                            const slice = bodyCell.beginParse();
+                                                            
+                                                            const msgOpcode = slice.loadUint(32).toNumber();
+                                                            // TokenTransfer opcode: 0x0f8a7ea5
+                                                            if (msgOpcode === 0x0f8a7ea5) {
+                                                                console.log("[TON Claim] Found TokenTransfer message to Jetton Wallet");
+                                                                // 解析金额: queryId(64) + amount(coins) + destination(address)
+                                                                const queryId = slice.loadUint(64);
+                                                                const transferAmount = slice.loadCoins();
+                                                                const transferDest = slice.loadAddress();
+                                                                
+                                                                // 检查目标地址是否是当前用户
+                                                                if (transferDest && addressEquals(transferDest.toString(true, true, true), currentAccount)) {
+                                                                    claimedAmount = transferAmount.toString();
+                                                                    console.log("[TON Claim] TokenTransfer amount to user:", claimedAmount);
+                                                                    clearInterval(pollInterval);
+                                                                    resolve();
+                                                                    return;
+                                                                }
+                                                            }
+                                                        } catch (parseErr) {
+                                                            console.log("[TON Claim] Failed to parse TokenTransfer:", parseErr.message);
+                                                        }
+                                                    }
+                                                }
+                                            } else {
+                                                // Native 红包：检查是否发送给当前用户
+                                                if (addressEquals(destAddr, currentAccount)) {
                                                     if (outMsg.value && parseInt(outMsg.value) > 0) {
                                                         claimedAmount = outMsg.value;
-                                                        console.log("Found outgoing transfer to user:", claimedAmount);
+                                                        console.log("[TON Claim] Found outgoing TON transfer to user:", claimedAmount);
                                                         clearInterval(pollInterval);
                                                         resolve();
                                                         return;
@@ -1113,22 +1288,94 @@ async function handleTonClaim(envelopeId, hashedPassword, zEnvelopeAddress) {
                             reject(err);
                         }
                     }
-                }, 3000); // 每3秒轮询一次
+                }, 20000); // 每20秒轮询一次
             });
 
             // 显示成功信息
             const assetInfoDiv = document.getElementById('asset-info');
             const assetDetailsP = document.getElementById('asset-details');
 
+            // 使用之前已经获取的红包信息来判断是 TON 还是 Jetton
+            let tokenName = 'TON';
+            let tokenDecimals = 9;
+            let isJetton = isJettonEnvelope; // 使用之前轮询时已经判断的结果
+            let jettonMasterAddress = envelopeJettonMaster; // 使用之前已经获取的 jettonMaster
+
+            console.log("Display result - isJetton:", isJetton, "jettonMasterAddress:", jettonMasterAddress);
+
+            // 如果是 Jetton，尝试获取代币信息（带重试机制）
+            if (isJetton && jettonMasterAddress) {
+                const maxRetries = 3;
+                const retryDelay = 2000; // 2秒
+
+                for (let retryCount = 0; retryCount < maxRetries; retryCount++) {
+                    try {
+                        // 使用 API v3 获取 Jetton 元数据
+                        const jettonMetaUrl = `${chainConfig.apiUrl}/jetton/masters?address=${jettonMasterAddress}&limit=1`;
+                        console.log(`Fetching Jetton metadata (attempt ${retryCount + 1}/${maxRetries}) from:`, jettonMetaUrl);
+                        
+                        const metaResponse = await fetch(jettonMetaUrl, {
+                            timeout: 10000 // 10秒超时
+                        });
+                        
+                        if (!metaResponse.ok) {
+                            throw new Error(`HTTP ${metaResponse.status}: ${metaResponse.statusText}`);
+                        }
+                        
+                        const metaData = await metaResponse.json();
+
+                        if (metaData.jetton_masters && metaData.jetton_masters.length > 0) {
+                            const jettonInfo = metaData.jetton_masters[0];
+                            if (jettonInfo.jetton_content) {
+                                tokenName = jettonInfo.jetton_content.symbol || jettonInfo.jetton_content.name || 'JETTON';
+                                if (jettonInfo.jetton_content.decimals !== undefined) {
+                                    tokenDecimals = parseInt(jettonInfo.jetton_content.decimals);
+                                }
+                            }
+                        }
+
+                        // 从 metadata 对象中获取
+                        if (metaData.metadata) {
+                            for (const [addr, metaInfo] of Object.entries(metaData.metadata)) {
+                                if (metaInfo.token_info && Array.isArray(metaInfo.token_info)) {
+                                    for (const tokenInfo of metaInfo.token_info) {
+                                        if (tokenInfo.type === 'jetton_masters' && tokenInfo.valid) {
+                                            if (tokenInfo.symbol) tokenName = tokenInfo.symbol;
+                                            if (tokenInfo.extra?.decimals !== undefined) {
+                                                tokenDecimals = parseInt(tokenInfo.extra.decimals);
+                                            }
+                                            break;
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        console.log(`Jetton info: name=${tokenName}, decimals=${tokenDecimals}`);
+                        break; // 成功获取，跳出重试循环
+                    } catch (metaErr) {
+                        console.warn(`Failed to fetch Jetton metadata (attempt ${retryCount + 1}/${maxRetries}):`, metaErr);
+                        
+                        if (retryCount < maxRetries - 1) {
+                            console.log(`Retrying in ${retryDelay / 1000} seconds...`);
+                            await new Promise(resolve => setTimeout(resolve, retryDelay));
+                        } else {
+                            console.warn("All retries failed, using default token name");
+                            tokenName = 'JETTON';
+                        }
+                    }
+                }
+            }
+
             let detailsHtml;
             if (claimedAmount) {
-                // 将 nanoTON 转换为 TON (1 TON = 10^9 nanoTON)
-                const amountInTon = (Number(claimedAmount) / 1e9).toFixed(4);
-                detailsHtml = `${t('token')}: TON<br>
-                               ${t('amount')}: ${amountInTon}`;
+                // 根据代币类型使用正确的 decimals
+                const amountFormatted = (Number(claimedAmount) / Math.pow(10, tokenDecimals)).toFixed(4);
+                detailsHtml = `${t('token')}: ${tokenName}<br>
+                               ${t('amount')}: ${amountFormatted}`;
             } else {
                 // 如果无法获取具体金额，显示通用成功消息
-                detailsHtml = `${t('token')}: TON<br>
+                detailsHtml = `${t('token')}: ${tokenName}<br>
                                ${t('amount')}: -`;
             }
 

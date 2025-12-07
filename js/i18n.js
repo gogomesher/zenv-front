@@ -194,9 +194,6 @@ function updatePageContent() {
             } else {
                 element.innerHTML = translations[currentLang][key];
             }
-            if (key == 'option_connect_first') {
-                console.log(element.tagName, element.placeholder, element.innerHTML);
-            }
         }
     });
 

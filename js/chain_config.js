@@ -73,11 +73,13 @@ export const CHAIN_CONFIG = {
     'ton': {
         name: 'TON',
         type: 'ton',
-        contractAddress: 'EQAcMdwYuz2Q-NvpWg_nsEqqivGmADLiosboDcAxD4zW2vHe',
-        // rpcUrl: 'https://toncenter.com/api/v2/jsonRPC',
-        rpcUrl: 'https://testnet.toncenter.com/api/v2/jsonRPC',
-        apiUrl: 'https://testnet.toncenter.com/api/v3',
-        apiUrl2: 'https://testnet.toncenter.com/api/v2',
+        contractAddress: 'EQByRRttY1jkAq7ZQQrL_Qr_ZRdv12QGS5Dda7XTRvHAo7Mc',
+        // rpcUrl: 'https://testnet.toncenter.com/api/v2/jsonRPC',
+        rpcUrl: 'https://toncenter.com/api/v2/jsonRPC',
+        // apiUrl: 'https://testnet.toncenter.com/api/v3',
+        // apiUrl2: 'https://testnet.toncenter.com/api/v2',
+        apiUrl: 'https://toncenter.com/api/v3',
+        apiUrl2: 'https://toncenter.com/api/v2',
         explorerUrl: 'https://tonscan.org',
         currency: 'TON'
     },
