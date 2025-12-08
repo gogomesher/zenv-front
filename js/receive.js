@@ -265,6 +265,8 @@ document.addEventListener('DOMContentLoaded', async function () {
                 await handleSolanaClaim(envelopeId, hashedPassword, zEnvelopeAddress);
             } else if (chainConfig.type === 'ton') {
                 await handleTonClaim(envelopeId, hashedPassword, zEnvelopeAddress);
+            } else if (chainConfig.type === 'tron') {
+                await handleTronClaim(envelopeId, hashedPassword, zEnvelopeAddress);
             } else {
                 throw new Error(t('network_not_supported'));
             }
@@ -1593,6 +1595,296 @@ async function connectToTon() {
         console.error("TON connection error:", error);
         showNotification("TON Connection Failed: " + error.message, 'error');
     }
+}
+
+async function handleTronClaim(envelopeId, hashedPassword, zEnvelopeAddress) {
+    console.log(`Attempting to claim Tron envelope #${envelopeId} from contract ${zEnvelopeAddress}`);
+
+    const tronWeb = window.tronWeb;
+    if (!tronWeb || !tronWeb.ready) {
+        throw new Error("TronLink钱包未连接或未准备好");
+    }
+
+    // 使用合约ABI创建合约实例
+    const zEnvelopeContract = tronWeb.contract(zEnvelopeABI, zEnvelopeAddress);
+
+    // 1. 检查红包ID是否有效
+    showNotification(t('verifying_id'), 'info');
+    let nextId;
+    try {
+        nextId = await zEnvelopeContract.nextEnvelopeId().call();
+        console.log("[TRON] nextEnvelopeId:", nextId.toString());
+    } catch (error) {
+        console.error("[TRON] Failed to get nextEnvelopeId:", error);
+        throw new Error("无法获取红包信息，请检查合约地址和网络是否正确");
+    }
+
+    if (parseInt(envelopeId) <= 0 || parseInt(envelopeId) >= parseInt(nextId.toString())) {
+        showNotification(t('invalid_id'), 'error');
+        return;
+    }
+
+    // 2. 发送领取请求交易
+    showNotification(t('claim_request_submitted'), 'info');
+
+    let txId;
+    try {
+        // 将hashedPassword转换为bytes格式
+        // hashedPassword格式: "0x" + 64个十六进制字符
+        const passwordBytes = hashedPassword; // TronWeb会自动处理0x前缀的hex字符串
+
+        console.log("[TRON] Calling claimEnvelopeWithPassword with:");
+        console.log("  envelopeId:", envelopeId);
+        console.log("  encryptedPassword:", passwordBytes);
+
+        txId = await zEnvelopeContract.claimEnvelopeWithPassword(
+            envelopeId,
+            passwordBytes
+        ).send({
+            feeLimit: 1000000000 // 1000 TRX
+        });
+
+        console.log("[TRON] Claim transaction sent, txId:", txId);
+    } catch (error) {
+        console.error("[TRON] claimEnvelopeWithPassword failed:", error);
+        if (error.message && error.message.includes("REVERT")) {
+            throw new Error("合约执行失败(REVERT)。可能原因: 1) 红包已被领取完 2) 您已领取过该红包 3) 红包已过期");
+        }
+        throw error;
+    }
+
+    showNotification(t('tx_confirmed_waiting'), 'info');
+
+    // 3. 等待用户交易确认
+    // let userTxConfirmed = false;
+    // for (let i = 0; i < 20; i++) {
+    //     try {
+    //         const receipt = await tronWeb.trx.getTransactionInfo(txId);
+    //         console.log(`[TRON] User tx check ${i + 1}: receipt =`, receipt);
+
+    //         if (receipt && receipt.id && receipt.receipt) {
+    //             if (receipt.receipt.result === 'SUCCESS') {
+    //                 userTxConfirmed = true;
+    //                 console.log("[TRON] User claimEnvelopeWithPassword transaction confirmed");
+    //                 break;
+    //             } else if (receipt.receipt.result === 'FAILED') {
+    //                 throw new Error("领取请求交易执行失败");
+    //             }
+    //         }
+    //     } catch (e) {
+    //         if (e.message && e.message.includes('执行失败')) {
+    //             throw e;
+    //         }
+    //         console.warn(`[TRON] User tx check ${i + 1} failed:`, e);
+    //     }
+    //     await new Promise(r => setTimeout(r, 2000));
+    // }
+
+    // if (!userTxConfirmed) {
+    //     throw new Error("领取请求交易确认超时");
+    // }
+
+    // 4. 轮询合约事件，等待后台服务处理并触发EnvelopeClaimed事件
+    // EnvelopeClaimed事件是在后台服务调用confirmClaimWithPassword时触发的
+    let receivedAmount = null;
+    let tokenAddress = null;
+    const maxAttempts = 40; // 40 * 3s = 120s timeout
+    const startTime = Date.now();
+
+    // 获取TronGrid API基础URL
+    const chainConfig = CHAIN_CONFIG['tron'];
+    const tronApiBase = chainConfig.rpcUrl; // https://api.shasta.trongrid.io
+
+    console.log("[TRON] Waiting for EnvelopeClaimed event from backend...");
+    console.log("[TRON] Using API:", tronApiBase);
+    console.log("[TRON] Contract:", zEnvelopeAddress);
+
+    for (let i = 0; i < maxAttempts; i++) {
+        try {
+            console.log(`[TRON] Polling attempt ${i + 1}/${maxAttempts}...`);
+
+            // 方法1: 使用TronGrid事件API直接获取合约事件
+            // API: GET /v1/contracts/{address}/events
+            try {
+                const eventUrl = `${tronApiBase}/v1/contracts/${zEnvelopeAddress}/events?event_name=EnvelopeClaimed&only_confirmed=false&limit=20`;
+                console.log("[TRON] Fetching events from:", eventUrl);
+                
+                const eventResponse = await fetch(eventUrl);
+                const eventData = await eventResponse.json();
+                
+                console.log("[TRON] Event API response:", eventData);
+
+                if (eventData.success && eventData.data && eventData.data.length > 0) {
+                    for (const event of eventData.data) {
+                        // 检查事件时间戳是否在我们开始领取之后
+                        const eventTime = event.block_timestamp || event.timestamp;
+                        if (eventTime && eventTime < startTime - 10000) {
+                            continue; // 跳过旧事件
+                        }
+
+                        // 检查envelopeId是否匹配
+                        const eventEnvelopeId = event.result?.envelopeId || event.result?._envelopeId || event.result?.['0'];
+                        console.log("[TRON] Event envelopeId:", eventEnvelopeId, "target:", envelopeId);
+
+                        if (eventEnvelopeId && eventEnvelopeId.toString() === envelopeId.toString()) {
+                            // 检查claimer是否是当前用户
+                            // let eventClaimer = event.result?.claimer || event.result?._claimer || event.result?.['1'];
+                            
+                            // // 如果是hex格式，转换为base58
+                            // if (eventClaimer && eventClaimer.startsWith('41')) {
+                            //     eventClaimer = tronWeb.address.fromHex(eventClaimer);
+                            // } else if (eventClaimer && eventClaimer.startsWith('0x')) {
+                            //     eventClaimer = tronWeb.address.fromHex('41' + eventClaimer.slice(2));
+                            // }
+                            
+                            // console.log("[TRON] Event claimer:", eventClaimer, "current:", currentAccount);
+
+                            // if (eventClaimer && eventClaimer.toLowerCase() === currentAccount.toLowerCase()) {
+                                // 找到匹配的事件
+                                const eventAmount = event.result?.amount || event.result?._amount || event.result?.['2'];
+                                receivedAmount = ethers.BigNumber.from(eventAmount.toString());
+                                console.log("[TRON] Found matching EnvelopeClaimed event! Amount:", receivedAmount.toString());
+                                break;
+                            // }
+                        }
+                    }
+                }
+            } catch (eventErr) {
+                console.warn("[TRON] Event API failed:", eventErr);
+                
+                // 备用方法: 使用tronWeb.getEventResult
+                try {
+                    const events = await tronWeb.getEventResult(zEnvelopeAddress, {
+                        eventName: 'EnvelopeClaimed',
+                        size: 20,
+                        onlyConfirmed: false
+                    });
+
+                    console.log("[TRON] getEventResult response:", events);
+
+                    if (events && events.length > 0) {
+                        for (const event of events) {
+                            const eventTime = event.timestamp || event.block_timestamp;
+                            if (eventTime && eventTime < startTime - 10000) {
+                                continue;
+                            }
+
+                            const eventEnvelopeId = event.result?.envelopeId || event.result?._envelopeId;
+                            if (eventEnvelopeId && eventEnvelopeId.toString() === envelopeId.toString()) {
+                                let eventClaimer = event.result?.claimer || event.result?._claimer;
+                                if (eventClaimer && eventClaimer.startsWith('41')) {
+                                    eventClaimer = tronWeb.address.fromHex(eventClaimer);
+                                }
+
+                                if (eventClaimer && eventClaimer.toLowerCase() === currentAccount.toLowerCase()) {
+                                    const eventAmount = event.result?.amount || event.result?._amount;
+                                    receivedAmount = ethers.BigNumber.from(eventAmount.toString());
+                                    console.log("[TRON] Found event via getEventResult! Amount:", receivedAmount.toString());
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                } catch (e2) {
+                    console.warn("[TRON] getEventResult also failed:", e2);
+                }
+            }
+
+            if (receivedAmount !== null) {
+                break;
+            }
+
+            // 方法2: 检查PasswordVerificationFailed事件
+            // try {
+            //     const failedUrl = `${tronApiBase}/v1/contracts/${zEnvelopeAddress}/events?event_name=PasswordVerificationFailed&only_confirmed=false&limit=10`;
+            //     const failedResponse = await fetch(failedUrl);
+            //     const failedData = await failedResponse.json();
+
+            //     if (failedData.success && failedData.data && failedData.data.length > 0) {
+            //         for (const event of failedData.data) {
+            //             const eventTime = event.block_timestamp || event.timestamp;
+            //             if (eventTime && eventTime < startTime - 10000) {
+            //                 continue;
+            //             }
+
+            //             const eventEnvelopeId = event.result?.envelopeId || event.result?._envelopeId || event.result?.['1'];
+            //             if (eventEnvelopeId && eventEnvelopeId.toString() === envelopeId.toString()) {
+            //                 console.log("[TRON] Found PasswordVerificationFailed event!");
+            //                 const errorInfoDiv = document.getElementById('error-info');
+            //                 const errorDetailsDiv = document.getElementById('error-details');
+            //                 errorDetailsDiv.innerHTML = t('password_verify_failed');
+            //                 errorInfoDiv.style.display = 'block';
+            //                 throw new Error(t('password_verify_failed'));
+            //             }
+            //         }
+            //     }
+            // } catch (failedErr) {
+            //     if (failedErr.message && failedErr.message.includes('password_verify_failed')) {
+            //         throw failedErr;
+            //     }
+            //     console.warn("[TRON] Check PasswordVerificationFailed failed:", failedErr);
+            // }
+
+        } catch (e) {
+            if (e.message && e.message.includes('password_verify_failed')) {
+                throw e;
+            }
+            console.warn(`[TRON] Polling attempt ${i + 1} error:`, e);
+        }
+        await new Promise(r => setTimeout(r, 10000));
+    }
+
+    // 4. 获取红包信息以显示代币类型
+    let tokenName = "TRX";
+    let decimals = 6; // TRX使用6位小数
+
+    try {
+        const envelopeInfo = await zEnvelopeContract.getEnvelopeInfo(envelopeId).call();
+        tokenAddress = envelopeInfo.tokenAddress;
+        console.log("[TRON] Envelope tokenAddress:", tokenAddress);
+
+        // 检查是否是原生TRX (地址为0或T9yD14Nj9j7xAB4dbGeiX9h8unkKHxuWwb)
+        const zeroAddress = "T9yD14Nj9j7xAB4dbGeiX9h8unkKHxuWwb"; // Tron的零地址
+        const isNativeTRX = !tokenAddress || 
+            tokenAddress === "0x0000000000000000000000000000000000000000" ||
+            tokenAddress === zeroAddress ||
+            tokenAddress === "410000000000000000000000000000000000000000";
+
+        if (!isNativeTRX && tokenAddress) {
+            // TRC20代币
+            try {
+                const tokenContract = await tronWeb.contract().at(tokenAddress);
+                const symbol = await tokenContract.symbol().call();
+                const tokenDecimals = await tokenContract.decimals().call();
+                tokenName = symbol;
+                decimals = Number(tokenDecimals);
+            } catch (e) {
+                console.warn("[TRON] Failed to get token info:", e);
+                tokenName = tokenAddress.substring(0, 6) + "..." + tokenAddress.substring(tokenAddress.length - 4);
+            }
+        }
+    } catch (e) {
+        console.warn("[TRON] Failed to get envelope info:", e);
+    }
+
+    // 5. 显示结果
+    const assetInfoDiv = document.getElementById('asset-info');
+    const assetDetailsP = document.getElementById('asset-details');
+
+    let detailsHtml;
+    if (receivedAmount !== null) {
+        const amountFormatted = ethers.utils.formatUnits(receivedAmount, decimals);
+        detailsHtml = `${t('token')}: ${tokenName}<br>
+                       ${t('amount')}: ${amountFormatted}`;
+    } else {
+        detailsHtml = `${t('token')}: ${tokenName}<br>
+                       ${t('amount')}: -`;
+    }
+
+    assetDetailsP.innerHTML = detailsHtml;
+    assetInfoDiv.style.display = 'block';
+
+    showNotification(t('claim_success'), 'success');
 }
 
 // Simple notification function

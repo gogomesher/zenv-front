@@ -65,7 +65,9 @@ export const CHAIN_CONFIG = {
         type: 'solana',
         contractAddress: '2BQGTYBozUfUwNBjtMJxgrzbVPzgiFB2gpKfdkCM9k1d',
         rpcUrl: 'https://api.devnet.solana.com',
+        // rpcUrl: 'https://api.mainnet-beta.solana.com',
         // rpcUrl: 'https://rpc.ankr.com/solana/8ef907fdef25f2c26860c4cc9d8b0ed76552a28b94008c2a4f39987f7468c308',
+        // rpcUrl: 'https://mainnet.helius-rpc.com/?api-key=0131513a-ccee-4a11-a8d6-de1ccc6cec17',
         explorerUrl: 'https://explorer.solana.com',
         currency: 'SOL'
     },

@@ -1045,101 +1045,331 @@ async function handleEvmCreateEnvelope(tokenAddress, amount, recipientCount, dis
 async function handleTronCreateEnvelope(tokenAddress, amount, recipientCount, distributionType, hashedPassword, validityInSeconds) {
     const submitBtn = document.querySelector('.submit-btn');
     const tronWeb = window.tronWeb;
+    
+    // Debug: Log contract address and network
+    console.log("[TRON] Contract Address:", zEnvelopeAddress);
+    console.log("[TRON] TronWeb fullNode:", tronWeb.fullNode?.host);
+    console.log("[TRON] Current Account:", currentAccount);
+    
     // Use explicit ABI to avoid fetching issues
     const zEnvelopeContract = tronWeb.contract(zEnvelopeABI, zEnvelopeAddress);
-    const serviceFee = await zEnvelopeContract.serviceFee().call();
+    
+    // Get service fee with error handling
+    let serviceFee;
+    try {
+        serviceFee = await zEnvelopeContract.serviceFee().call();
+        console.log("[TRON] Service Fee (raw):", serviceFee);
+        console.log("[TRON] Service Fee (string):", serviceFee.toString());
+    } catch (feeError) {
+        console.error("[TRON] Failed to get service fee:", feeError);
+        // 合约可能不存在或网络不匹配
+        throw new Error("无法获取服务费，请检查合约地址和网络是否正确。合约地址: " + zEnvelopeAddress);
+    }
+    
+    // Check if contract is paused
+    try {
+        const isPaused = await zEnvelopeContract.paused().call();
+        console.log("[TRON] Contract paused:", isPaused);
+        if (isPaused) {
+            throw new Error("合约当前处于暂停状态，无法创建红包");
+        }
+    } catch (pauseError) {
+        if (pauseError.message.includes("暂停状态")) {
+            throw pauseError;
+        }
+        console.warn("[TRON] Could not check paused state:", pauseError);
+    }
+
+    // Convert parameters to proper types
+    const recipientCountInt = parseInt(recipientCount, 10);
+    const distributionTypeInt = parseInt(distributionType, 10);
+    const validityInSecondsInt = parseInt(validityInSeconds, 10);
+    
+    console.log("[TRON] Parameters:", {
+        tokenAddress,
+        amount,
+        recipientCount: recipientCountInt,
+        distributionType: distributionTypeInt,
+        hashedPassword,
+        validityInSeconds: validityInSecondsInt
+    });
 
     if (tokenAddress && tokenAddress !== 'TRX') {
         // TRC20 Logic
         // Use explicit TRC20 ABI
         const tokenContract = tronWeb.contract(TRC20_ABI, tokenAddress);
-        const decimals = await tokenContract.decimals().call();
+        
+        let decimals;
+        try {
+            decimals = await tokenContract.decimals().call();
+        } catch (e) {
+            console.error("[TRON] Failed to get token decimals:", e);
+            throw new Error("无法获取代币精度，请确认代币地址正确");
+        }
+        
         const decimalsNum = Number(decimals);
         const amountWei = ethers.utils.parseUnits(amount, decimalsNum);
+        console.log("[TRON] Token amount (wei):", amountWei.toString());
 
         // Check allowance
         const allowance = await tokenContract.allowance(currentAccount, zEnvelopeAddress).call();
         const allowanceBn = ethers.BigNumber.from(allowance.toString());
+        console.log("[TRON] Current allowance:", allowanceBn.toString());
 
         if (allowanceBn.lt(amountWei)) {
             showNotification(t('approval_required'), 'info');
             submitBtn.innerHTML = `<i class="fas fa-spinner fa-spin"></i> ${t('approving')}`;
-            await tokenContract.approve(zEnvelopeAddress, amountWei.toString()).send();
-            showNotification(t('approval_success'), 'info');
+            try {
+                await tokenContract.approve(zEnvelopeAddress, amountWei.toString()).send();
+                showNotification(t('approval_success'), 'info');
+            } catch (approveError) {
+                console.error("[TRON] Approve failed:", approveError);
+                throw new Error("代币授权失败: " + approveError.message);
+            }
             submitBtn.innerHTML = `<i class="fas fa-spinner fa-spin"></i> ${t('creating')}`;
         }
 
         showNotification(t('creating_envelope'), 'info');
-        const txId = await zEnvelopeContract.createERC20Envelope(
-            tokenAddress,
-            amountWei.toString(),
-            hashedPassword,
-            validityInSeconds,
-            recipientCount,
-            distributionType
-        ).send({
-            callValue: serviceFee,
-            feeLimit: 1000000000 // 1000 TRX
-        });
-        await handleTronTransactionReceipt(txId);
+        
+        // Convert serviceFee to number for callValue
+        const serviceFeeNum = Number(serviceFee.toString());
+        console.log("[TRON] Creating TRC20 envelope with callValue:", serviceFeeNum);
+        
+        try {
+            const txId = await zEnvelopeContract.createERC20Envelope(
+                tokenAddress,
+                amountWei.toString(),
+                hashedPassword,
+                validityInSecondsInt,
+                recipientCountInt,
+                distributionTypeInt
+            ).send({
+                callValue: serviceFeeNum,
+                feeLimit: 1000000000 // 1000 TRX
+            });
+            await handleTronTransactionReceipt(txId);
+        } catch (createError) {
+            console.error("[TRON] createERC20Envelope failed:", createError);
+            throw createError;
+        }
 
     } else {
-        // TRX Logic
-        const amountWei = ethers.utils.parseUnits(amount, 6); // TRX has 6 decimals
+        // TRX Logic - TRX uses 6 decimals (1 TRX = 1,000,000 SUN)
+        const amountSun = ethers.utils.parseUnits(amount, 6);
+        console.log("[TRON] TRX amount (SUN):", amountSun.toString());
+        
         showNotification(t('creating_envelope'), 'info');
 
         const serviceFeeBn = ethers.BigNumber.from(serviceFee.toString());
-        const totalValue = amountWei.add(serviceFeeBn);
+        const totalValue = amountSun.add(serviceFeeBn);
+        const totalValueNum = Number(totalValue.toString());
+        
+        console.log("[TRON] Service Fee (SUN):", serviceFeeBn.toString());
+        console.log("[TRON] Total Value (SUN):", totalValueNum);
+        
+        // Check user balance
+        try {
+            const balance = await tronWeb.trx.getBalance(currentAccount);
+            console.log("[TRON] User TRX balance (SUN):", balance);
+            if (balance < totalValueNum) {
+                throw new Error(`TRX余额不足。需要: ${totalValueNum / 1000000} TRX, 当前余额: ${balance / 1000000} TRX`);
+            }
+        } catch (balanceError) {
+            if (balanceError.message.includes("余额不足")) {
+                throw balanceError;
+            }
+            console.warn("[TRON] Could not check balance:", balanceError);
+        }
 
-        const txId = await zEnvelopeContract.createEnvelope(
-            hashedPassword,
-            validityInSeconds,
-            recipientCount,
-            distributionType
-        ).send({
-            callValue: totalValue.toString(),
-            feeLimit: 1000000000 // 1000 TRX
-        });
-        await handleTronTransactionReceipt(txId);
+        try {
+            const txId = await zEnvelopeContract.createEnvelope(
+                hashedPassword,
+                validityInSecondsInt,
+                recipientCountInt,
+                distributionTypeInt
+            ).send({
+                callValue: totalValueNum,
+                feeLimit: 1000000000 // 1000 TRX
+            });
+            await handleTronTransactionReceipt(txId);
+        } catch (createError) {
+            console.error("[TRON] createEnvelope failed:", createError);
+            // 提供更详细的错误信息
+            if (createError.message && createError.message.includes("REVERT")) {
+                throw new Error("合约执行失败(REVERT)。可能原因: 1) 合约地址与网络不匹配 2) 合约已暂停 3) 参数无效。请检查TronLink连接的网络是否与配置一致。");
+            }
+            throw createError;
+        }
     }
 }
 
 async function handleTronTransactionReceipt(txId) {
     const submitBtn = document.querySelector('.submit-btn');
-    console.log("Tron Tx ID:", txId);
+    const tronWeb = window.tronWeb;
+    console.log("[TRON] Transaction ID:", txId);
 
-    // Wait for confirmation loop and parse EnvelopeCreated event
-    let receipt = null;
+    // 获取TronGrid API基础URL
+    const chainConfig = CHAIN_CONFIG['tron'];
+    const tronApiBase = chainConfig.rpcUrl; // https://api.shasta.trongrid.io
+
+    // 记录开始时间，用于过滤旧事件
+    const startTime = Date.now();
     let envelopeId = null;
-    const maxAttempts = 20;
+    let txConfirmed = false;
+    const maxAttempts = 30; // 30 * 3s = 90s timeout
+
+    console.log("[TRON] Waiting for transaction confirmation...");
+    console.log("[TRON] Using API:", tronApiBase);
+    console.log("[TRON] Contract:", zEnvelopeAddress);
 
     for (let i = 0; i < maxAttempts; i++) {
         try {
-            receipt = await window.tronWeb.trx.getTransactionInfo(txId);
-            if (receipt && receipt.id && receipt.receipt && receipt.receipt.result === 'SUCCESS') {
-                if (receipt.log && receipt.log.length > 0) {
-                    for (const log of receipt.log) {
-                        if (log.topics && log.topics.length >= 2) {
-                            const eventSignature = "0x" + ethers.utils.id("EnvelopeCreated(uint256,address,address,uint256,uint256,uint8)").slice(2);
-                            const logTopic0 = "0x" + log.topics[0];
-                            if (logTopic0.toLowerCase() === eventSignature.toLowerCase()) {
-                                envelopeId = ethers.BigNumber.from("0x" + log.topics[1]).toString();
+            console.log(`[TRON] Polling attempt ${i + 1}/${maxAttempts}...`);
+
+            // 方法1: 先检查交易是否确认
+            if (!txConfirmed) {
+                try {
+                    const receipt = await tronWeb.trx.getTransactionInfo(txId);
+                    console.log(`[TRON] Transaction receipt:`, receipt);
+                    
+                    if (receipt && receipt.id && receipt.receipt) {
+                        if (receipt.receipt.result === 'SUCCESS') {
+                            txConfirmed = true;
+                            console.log("[TRON] Transaction confirmed successfully");
+                            
+                            // 尝试从receipt.log中解析事件
+                            if (receipt.log && receipt.log.length > 0) {
+                                for (const log of receipt.log) {
+                                    if (log.topics && log.topics.length >= 2) {
+                                        // EnvelopeCreated事件签名
+                                        const eventSignature = ethers.utils.id("EnvelopeCreated(uint256,address,address,uint256,uint256,uint8)").slice(2);
+                                        const logTopic0 = log.topics[0];
+                                        if (logTopic0.toLowerCase() === eventSignature.toLowerCase()) {
+                                            envelopeId = ethers.BigNumber.from("0x" + log.topics[1]).toString();
+                                            console.log("[TRON] Found envelopeId from receipt log:", envelopeId);
+                                            break;
+                                        }
+                                    }
+                                }
+                            }
+                        } else if (receipt.receipt.result === 'FAILED') {
+                            throw new Error("交易执行失败(FAILED)");
+                        }
+                    }
+                } catch (receiptErr) {
+                    if (receiptErr.message && receiptErr.message.includes('执行失败')) {
+                        throw receiptErr;
+                    }
+                    console.warn("[TRON] getTransactionInfo failed:", receiptErr);
+                }
+            }
+
+            // 如果已经从receipt中获取到envelopeId，直接退出
+            if (envelopeId) {
+                break;
+            }
+
+            // 方法2: 使用TronGrid事件API获取EnvelopeCreated事件
+            if (txConfirmed) {
+                try {
+                    const eventUrl = `${tronApiBase}/v1/contracts/${zEnvelopeAddress}/events?event_name=EnvelopeCreated&only_confirmed=false&limit=20`;
+                    console.log("[TRON] Fetching events from:", eventUrl);
+                    
+                    const eventResponse = await fetch(eventUrl);
+                    const eventData = await eventResponse.json();
+                    
+                    console.log("[TRON] Event API response:", eventData);
+
+                    if (eventData.success && eventData.data && eventData.data.length > 0) {
+                        for (const event of eventData.data) {
+                            // 检查事件时间戳是否在我们开始创建之后
+                            const eventTime = event.block_timestamp || event.timestamp;
+                            if (eventTime && eventTime < startTime - 10000) {
+                                continue; // 跳过旧事件
+                            }
+
+                            // 检查creator是否是当前用户
+                            let eventCreator = event.result?.creator || event.result?._creator || event.result?.['1'];
+                            
+                            // 如果是hex格式，转换为base58
+                            if (eventCreator && eventCreator.startsWith('41')) {
+                                eventCreator = tronWeb.address.fromHex(eventCreator);
+                            } else if (eventCreator && eventCreator.startsWith('0x')) {
+                                eventCreator = tronWeb.address.fromHex('41' + eventCreator.slice(2));
+                            }
+                            
+                            console.log("[TRON] Event creator:", eventCreator, "current:", currentAccount);
+
+                            if (eventCreator && eventCreator.toLowerCase() === currentAccount.toLowerCase()) {
+                                // 找到匹配的事件
+                                const eventEnvelopeId = event.result?.envelopeId || event.result?._envelopeId || event.result?.['0'];
+                                envelopeId = eventEnvelopeId.toString();
+                                console.log("[TRON] Found matching EnvelopeCreated event! EnvelopeId:", envelopeId);
                                 break;
                             }
                         }
                     }
+                } catch (eventErr) {
+                    console.warn("[TRON] Event API failed:", eventErr);
+                    
+                    // 备用方法: 使用tronWeb.getEventResult
+                    try {
+                        const events = await tronWeb.getEventResult(zEnvelopeAddress, {
+                            eventName: 'EnvelopeCreated',
+                            size: 20,
+                            onlyConfirmed: false
+                        });
+
+                        console.log("[TRON] getEventResult response:", events);
+
+                        if (events && events.length > 0) {
+                            for (const event of events) {
+                                const eventTime = event.timestamp || event.block_timestamp;
+                                if (eventTime && eventTime < startTime - 10000) {
+                                    continue;
+                                }
+
+                                let eventCreator = event.result?.creator || event.result?._creator;
+                                if (eventCreator && eventCreator.startsWith('41')) {
+                                    eventCreator = tronWeb.address.fromHex(eventCreator);
+                                }
+
+                                if (eventCreator && eventCreator.toLowerCase() === currentAccount.toLowerCase()) {
+                                    const eventEnvelopeId = event.result?.envelopeId || event.result?._envelopeId;
+                                    envelopeId = eventEnvelopeId.toString();
+                                    console.log("[TRON] Found event via getEventResult! EnvelopeId:", envelopeId);
+                                    break;
+                                }
+                            }
+                        }
+                    } catch (e2) {
+                        console.warn("[TRON] getEventResult also failed:", e2);
+                    }
                 }
-                if (envelopeId) break;
-            } else if (receipt && receipt.receipt && receipt.receipt.result === 'FAILED') {
-                throw new Error("Transaction failed on chain");
             }
+
+            if (envelopeId) {
+                break;
+            }
+
         } catch (e) {
-            console.warn(`[TRON] Attempt ${i + 1} failed:`, e);
+            if (e.message && e.message.includes('执行失败')) {
+                throw e;
+            }
+            console.warn(`[TRON] Polling attempt ${i + 1} error:`, e);
         }
         await new Promise(r => setTimeout(r, 3000));
     }
 
-    showNotification(t('create_success'), 'success');
+    // 显示结果
+    if (envelopeId) {
+        showNotification(t('create_success'), 'success');
+    } else if (txConfirmed) {
+        showNotification(t('create_success'), 'success');
+        console.warn("[TRON] Transaction confirmed but couldn't parse envelopeId");
+    } else {
+        showNotification(t('create_success_no_id') || 'Red packet may have been created. Please check your wallet.', 'warning');
+    }
 
     const resultMessage = document.getElementById('result-message');
     const envelopeIdSpan = document.getElementById('envelope-id');
