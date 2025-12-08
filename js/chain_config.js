@@ -43,7 +43,7 @@ export const CHAIN_CONFIG = {
     8453: {
         name: 'Base',
         type: 'evm',
-        contractAddress: '0x79d0532F61E1922DF5199E0487c0D64562DAAE88',
+        contractAddress: '0xe728f3F581Df57aFC16b8BE7c050b90797d81b5f',
         rpcUrl: 'https://mainnet.base.org',
         explorerUrl: 'https://basescan.org',
         apiUrl: 'https://api.etherscan.io/v2/api',

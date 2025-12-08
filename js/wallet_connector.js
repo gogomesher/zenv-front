@@ -5,7 +5,7 @@ import { TonAdapter } from '@reown/appkit-adapter-ton'
 import { TonConnectUI } from '@tonconnect/ui'
 
 import { solana, solanaTestnet, solanaDevnet } from '@reown/appkit/networks'
-import { mainnet, sepolia, bsc, polygon, monad } from '@reown/appkit/networks'
+import { mainnet, sepolia, bsc, polygon, monad, base } from '@reown/appkit/networks'
 import { ton, tonTestnet } from '@reown/appkit/networks'
 
 // 0. Create the Ethers adapter
@@ -33,7 +33,7 @@ console.log("Initializing AppKit with adapters:", { ethersAdapter, solanaWeb3JsA
 const modal = createAppKit({
   adapters: [ethersAdapter, solanaWeb3JsAdapter, tonAdapter],
   networks: [
-    mainnet, sepolia, bsc, polygon, monad,
+    mainnet, sepolia, bsc, polygon, monad, base,
     solana, solanaTestnet, solanaDevnet,
     ton, tonTestnet
   ],
