@@ -12,6 +12,7 @@
     "@reown/appkit-adapter-solana": "^1.8.14",
     "@reown/appkit-adapter-ton": "^1.8.14",
     "@tonconnect/ui": "^2.3.1",
-    "@tronweb3/walletconnect-tron": "^4.0.0"
+    "@tronweb3/walletconnect-tron": "^4.0.0",
+    "qrcode": "^1.5.4"
   }
 }

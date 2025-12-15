@@ -1231,12 +1231,12 @@ async function handleTronTransactionReceipt(txId) {
                 try {
                     const receipt = await tronWeb.trx.getTransactionInfo(txId);
                     console.log(`[TRON] Transaction receipt:`, receipt);
-                    
+
                     if (receipt && receipt.id && receipt.receipt) {
                         if (receipt.receipt.result === 'SUCCESS') {
                             txConfirmed = true;
                             console.log("[TRON] Transaction confirmed successfully");
-                            
+
                             // 尝试从receipt.log中解析事件
                             if (receipt.log && receipt.log.length > 0) {
                                 for (const log of receipt.log) {
@@ -1274,10 +1274,10 @@ async function handleTronTransactionReceipt(txId) {
                 try {
                     const eventUrl = `${tronApiBase}/v1/contracts/${zEnvelopeAddress}/events?event_name=EnvelopeCreated&only_confirmed=false&limit=20`;
                     console.log("[TRON] Fetching events from:", eventUrl);
-                    
+
                     const eventResponse = await fetch(eventUrl);
                     const eventData = await eventResponse.json();
-                    
+
                     console.log("[TRON] Event API response:", eventData);
 
                     if (eventData.success && eventData.data && eventData.data.length > 0) {
@@ -1290,14 +1290,14 @@ async function handleTronTransactionReceipt(txId) {
 
                             // 检查creator是否是当前用户
                             let eventCreator = event.result?.creator || event.result?._creator || event.result?.['1'];
-                            
+
                             // 如果是hex格式，转换为base58
                             if (eventCreator && eventCreator.startsWith('41')) {
                                 eventCreator = tronWeb.address.fromHex(eventCreator);
                             } else if (eventCreator && eventCreator.startsWith('0x')) {
                                 eventCreator = tronWeb.address.fromHex('41' + eventCreator.slice(2));
                             }
-                            
+
                             console.log("[TRON] Event creator:", eventCreator, "current:", currentAccount);
 
                             if (eventCreator && eventCreator.toLowerCase() === currentAccount.toLowerCase()) {
@@ -1311,7 +1311,7 @@ async function handleTronTransactionReceipt(txId) {
                     }
                 } catch (eventErr) {
                     console.warn("[TRON] Event API failed:", eventErr);
-                    
+
                     // 备用方法: 使用tronWeb.getEventResult
                     try {
                         const events = await tronWeb.getEventResult(zEnvelopeAddress, {
@@ -1376,6 +1376,11 @@ async function handleTronTransactionReceipt(txId) {
     envelopeIdSpan.textContent = envelopeId || t('pending_check_wallet') || "Pending";
     resultMessage.style.display = 'block';
     resultMessage.scrollIntoView({ behavior: 'smooth' });
+
+    // Generate QR code if envelopeId is available
+    if (envelopeId) {
+        await generateEnvelopeQRCode(envelopeId);
+    }
 
     submitBtn.innerHTML = t('btn_create');
     submitBtn.disabled = false;
@@ -1668,6 +1673,9 @@ async function handleSolanaTransactionReceipt(signature, envelopeId) {
     resultMessage.style.display = 'block';
     resultMessage.scrollIntoView({ behavior: 'smooth' });
 
+    // Generate QR code
+    await generateEnvelopeQRCode(envelopeId);
+
     submitBtn.innerHTML = t('btn_create');
     submitBtn.disabled = false;
 }
@@ -1692,6 +1700,9 @@ async function handleTransactionReceipt(tx) {
 
         // Scroll to result
         resultMessage.scrollIntoView({ behavior: 'smooth' });
+
+        // Generate QR code
+        await generateEnvelopeQRCode(envelopeId);
     } else {
         console.error('Could not find EnvelopeCreated event in transaction receipt');
     }
@@ -2492,6 +2503,9 @@ async function handleTonTransactionResult(result, contractAddress) {
             envelopeIdSpan.textContent = envelopeId;
             resultMessage.style.display = 'block';
             resultMessage.scrollIntoView({ behavior: 'smooth' });
+
+            // Generate QR code
+            await generateEnvelopeQRCode(envelopeId);
         } else {
             // 交易已发送但无法解析事件
             console.log("[TON] Transaction sent but couldn't parse event.");
@@ -3523,6 +3537,44 @@ const zEnvelopeABI = [
     }
 ];
 
+// Generate QR code for envelope
+async function generateEnvelopeQRCode(envelopeId) {
+    try {
+        // Create the URL with envelopeId parameter
+        const qrCodeUrl = `https://play.zenvelope.xyz/receive?envelopeid=${envelopeId}`;
+
+        // Get the QR code container element
+        const qrcodeContainer = document.getElementById('envelope-qrcode');
+
+        if (qrcodeContainer) {
+            // Clear any existing QR code
+            qrcodeContainer.innerHTML = '';
+
+            // Check if QRCode library is available
+            if (typeof QRCode !== 'undefined') {
+                // Generate QR code using qrcodejs
+                new QRCode(qrcodeContainer, {
+                    text: qrCodeUrl,
+                    width: 200,
+                    height: 200,
+                    colorDark : "#000000",
+                    colorLight : "#ffffff",
+                    correctLevel : QRCode.CorrectLevel.H
+                });
+
+                console.log('QR code generated successfully for envelope ID:', envelopeId);
+            } else {
+                console.error('QRCode library not found');
+                // Fallback or retry logic could be added here
+            }
+        } else {
+            console.error('QR code container element not found');
+        }
+    } catch (error) {
+        console.error('Failed to generate QR code:', error);
+    }
+}
+
 // Simple notification function
 function showNotification(message, type) {
     // For now, use alert as fallback, or console
@@ -3533,8 +3585,8 @@ function showNotification(message, type) {
         // Optional: Implement a better UI notification
         // For success/info, maybe just log or use a toast if available
         // But to match user expectation of "showing" something:
-        // alert(`${type.toUpperCase()}: ${message}`); 
-        // Let's stick to alert for error, and maybe console for others to avoid spam, 
+        // alert(`${type.toUpperCase()}: ${message}`);
+        // Let's stick to alert for error, and maybe console for others to avoid spam,
         // unless it's a critical success message.
         if (type === 'success') alert(message);
     }

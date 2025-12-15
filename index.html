@@ -86,6 +86,10 @@
                     <p data-i18n="create_success_id">您的红包 ID 是:</p>
                     <div class="highlight-text" id="envelope-id"></div>
                     <p data-i18n="create_success_share">请将此 ID 和口令分享给好友。</p>
+                    <div class="qrcode-container">
+                        <p data-i18n="create_success_qrcode">扫描二维码领取红包:</p>
+                        <div id="envelope-qrcode"></div>
+                    </div>
                 </div>
 
                 <form id="envelope-form">
@@ -152,6 +156,7 @@
     <script src="https://unpkg.com/@solana/web3.js@latest/lib/index.iife.min.js"></script>
     <script src="https://unpkg.com/@tonconnect/ui@latest/dist/tonconnect-ui.min.js"></script>
     <script src="https://unpkg.com/tonweb@0.0.66/dist/tonweb.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
     <script src="js/wasm_exec.js"></script>
     <script type="module" src="js/script.js?v=1"></script>
     <script>
